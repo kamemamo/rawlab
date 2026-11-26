@@ -44,6 +44,7 @@ struct AdjustPanel: View {
         }
         .background(panelBackground)
         .foregroundStyle(.white)
+        .sheet(isPresented: $model.isLookPasteSheetShown) { LookPasteSheet(model: model) }
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
@@ -450,6 +451,14 @@ struct AdjustPanel: View {
                     Button("今の写真で合わせ直す") { model.rematchLook() }
                         .help("同じ見本で、今の補正の状態から色味を作り直します。露出などを大きく変えたあとに")
                     Button("色味を外す") { model.removeLook() }
+                    if let p = model.lookPasteProgress {
+                        ProgressView(value: Double(p.done), total: Double(max(p.total, 1)))
+                            .frame(width: 80)
+                        Text("貼っています \(p.done) / \(p.total)").font(.caption)
+                    } else {
+                        Button("ほかの写真にも貼る…") { model.isLookPasteSheetShown = true }
+                            .help("この色味を、一覧のほかの写真にまとめてかけます")
+                    }
                 }
             } else if let p = model.selectedTab.param {
                 Text(model.selectedTab.title).foregroundStyle(.white.opacity(0.7))

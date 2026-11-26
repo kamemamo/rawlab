@@ -199,6 +199,9 @@ final class AppModel {
 
     // スポイト(ホワイトバランス)
     var isEyedropperActive = false
+    /// 色味をほかの写真に貼っている途中の進み具合
+    var lookPasteProgress: (done: Int, total: Int)?
+    var isLookPasteSheetShown = false
 
     // 表示
     var preview: CGImage?
@@ -1248,6 +1251,75 @@ extension AppModel {
             case .failure(let error):
                 status = "色味を作れません: \(error.localizedDescription)"
             }
+        }
+    }
+}
+
+// MARK: - 色味をほかの写真に貼る
+
+extension AppModel {
+    /// 今の写真の色味を、選んだ写真の最初のバージョンに貼る。
+    /// rematch が true なら、写真ごとに RAW を読み、同じ見本でその写真に合わせた色味を作る。
+    /// false なら今の色味(同じ LUT)をそのまま使う(同じ光で撮った続きの写真向け)
+    func pasteLook(to photoIDs: [Int64], rematch: Bool) {
+        guard let catalog, let id = settings.lookID, lookPasteProgress == nil else { return }
+        flushSave()
+        let strength = settings.lookStrength
+        let name = LookStore.name(id) ?? "見本"
+        let reference = rematch ? LookStore.reference(id).flatMap { try? ReferenceImage(image: $0, name: name) } : nil
+        if rematch && reference == nil {
+            status = "見本の画像が見つかりません"
+            return
+        }
+        let targets = photos.filter { photoIDs.contains($0.id) && !$0.isMissing && $0.id != selectedPhotoID }
+        guard !targets.isEmpty else { return }
+        lookPasteProgress = (0, targets.count)
+        Task {
+            var failed: [String] = []
+            for (i, photo) in targets.enumerated() {
+                status = "色味を貼っています… \(i + 1) / \(targets.count)  \(photo.fileName)"
+                guard var version = (try? catalog.versions(photoID: photo.id))?.first
+                        ?? (try? catalog.createVersion(photoID: photo.id)) else {
+                    failed.append(photo.fileName)
+                    continue
+                }
+                var lookID = id
+                if let reference {
+                    let url = photo.url, decoderID = version.decoderID
+                    var source = version.settings
+                    source.lookID = nil
+                    var options = version.decodeOptions
+                    options.halfSize = true
+                    let result = await Task.detached(priority: .userInitiated) { () -> String? in
+                        guard let decoded = try? DecoderRegistry.decode(url, preferred: decoderID, options: options),
+                              let small = DevelopPipeline.materialize(decoded.image, maxPixel: 400),
+                              let cg = DevelopPipeline.renderCGImage(DevelopPipeline.apply(source, to: small)),
+                              let samples = LookMatcher.srgbSamples(of: cg)?.1 else { return nil }
+                        let lut = LookMatcher.match(source: samples, reference: reference.samples)
+                        return try? LookStore.save(lut, reference: reference.thumbnail, name: reference.name)
+                    }.value
+                    guard let result else {
+                        failed.append(photo.fileName)
+                        lookPasteProgress = (i + 1, targets.count)
+                        continue
+                    }
+                    lookID = result
+                }
+                version.settings.lookID = lookID
+                version.settings.lookStrength = strength
+                try? catalog.updateVersion(version)
+                if let j = photos.firstIndex(where: { $0.id == photo.id }),
+                   let updated = try? catalog.photo(id: photo.id) {
+                    photos[j] = updated
+                }
+                lookPasteProgress = (i + 1, targets.count)
+            }
+            exportStates = (try? catalog.exportStates()) ?? [:]
+            lookPasteProgress = nil
+            let done = targets.count - failed.count
+            status = failed.isEmpty
+                ? "\(done) 枚に色味「\(name)」を貼りました"
+                : "\(done) 枚に貼りました。読めなかった写真: \(failed.joined(separator: "、"))"
         }
     }
 }
