@@ -27,8 +27,8 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem {
                 Picker("比較", selection: $model.compareMode) {
-                    Text("補正後").tag(CompareMode.off)
                     Text("補正前").tag(CompareMode.before)
+                    Text("補正後").tag(CompareMode.off)
                     Text("左右で比較").tag(CompareMode.split)
                 }
                 .pickerStyle(.segmented)
