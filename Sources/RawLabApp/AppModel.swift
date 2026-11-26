@@ -86,8 +86,12 @@ final class AppModel {
     var selectedTab: AdjustTab = .exposure {
         didSet {
             guard oldValue != selectedTab else { return }
-            hoverSettings = nil
-            hoverDecoderID = nil
+            // マウスを乗せたままタブを替えたとき、大画面が仮の値のまま残らないようにする
+            if hoverSettings != nil || hoverDecoderID != nil {
+                hoverSettings = nil
+                hoverDecoderID = nil
+                rerender()
+            }
             variations = []  // 前のタブのサムネイルを残さない
             refreshVariations()
         }
