@@ -21,7 +21,7 @@ struct AdjustPanel: View {
                     variationStrip
                 }
             }
-            .frame(height: model.selectedTab.grid != nil ? 300 : 132)
+            .frame(height: model.selectedTab.grid != nil ? 200 : 132)
             .padding(.horizontal, 10)
             .padding(.top, 8)
             controls

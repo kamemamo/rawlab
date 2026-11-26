@@ -637,7 +637,7 @@ final class AppModel {
         }
     }
 
-    /// ホワイトバランスのマス目: 横に色温度、縦に色かぶり(上がプラス)
+    /// ホワイトバランスのマス目: 横に色温度 9 段階、縦に色かぶり 3 段階(上がプラス)
     private func renderGrid(_ g: (x: AdjustParam, y: AdjustParam), source: CIImage) {
         variationTask?.cancel()
         let settings = self.settings

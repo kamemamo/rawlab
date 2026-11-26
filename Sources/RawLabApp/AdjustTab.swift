@@ -24,11 +24,11 @@ enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// ホワイトバランスは 2 方向のマス目(横: 色温度 9 段階、縦: 色かぶり 5 段階)
+    /// ホワイトバランスは 2 方向のマス目(横: 色温度 9 段階、縦: 色かぶり 3 段階)
     var grid: (x: AdjustParam, y: AdjustParam)? {
         guard self == .whiteBalance else { return nil }
         return (AdjustParam(\.temperature, -5000...5000, coarse: 1000, fine: 100, format: "%+.0f K", count: 9),
-                AdjustParam(\.tint, -60...60, coarse: 20, fine: 4, format: "%+.0f", count: 5))
+                AdjustParam(\.tint, -60...60, coarse: 30, fine: 4, format: "%+.0f", count: 3))
     }
 
     /// デコーダー・ホワイトバランスは nil
