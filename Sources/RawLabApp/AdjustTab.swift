@@ -28,7 +28,7 @@ enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
     var grid: (x: AdjustParam, y: AdjustParam)? {
         guard self == .whiteBalance else { return nil }
         return (AdjustParam(\.temperature, -5000...5000, coarse: 1000, fine: 100, format: "%+.0f K", count: 9),
-                AdjustParam(\.tint, -60...60, coarse: 30, fine: 4, format: "%+.0f", count: 3))
+                AdjustParam(\.tint, -60...60, coarse: 12, fine: 4, format: "%+.0f", count: 3))
     }
 
     /// デコーダー・ホワイトバランスは nil
