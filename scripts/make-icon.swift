@@ -54,7 +54,7 @@ ctx.restoreGState()
 ctx.saveGState()
 ctx.addPath(bodyPath)
 ctx.clip()
-ctx.drawLinearGradient(gradient([(0, color(58, 60, 66)), (1, color(18, 19, 22))]),
+ctx.drawLinearGradient(gradient([(0, color(66, 68, 75)), (1, color(10, 10, 12))]),
                        start: CGPoint(x: 0, y: body.maxY), end: CGPoint(x: 0, y: body.minY), options: [])
 ctx.restoreGState()
 
@@ -71,8 +71,8 @@ ctx.restoreGState()
 ctx.saveGState()
 ctx.addPath(ring(barrelR, 330))
 ctx.clip(using: .evenOdd)
-ctx.drawLinearGradient(gradient([(0, color(196, 199, 205)), (0.45, color(104, 107, 114)),
-                                 (0.55, color(80, 83, 90)), (1, color(34, 35, 39))]),
+ctx.drawLinearGradient(gradient([(0, color(232, 234, 238)), (0.45, color(116, 119, 127)),
+                                 (0.55, color(72, 75, 82)), (1, color(20, 21, 24))]),
                        start: CGPoint(x: center.x - 260, y: center.y + 300),
                        end: CGPoint(x: center.x + 260, y: center.y - 300), options: [])
 // ローレット(細かい刻み)
@@ -82,12 +82,12 @@ for i in 0..<180 {
     ctx.move(to: point(340, a))
     ctx.addLine(to: point(364, a))
 }
-ctx.setStrokeColor(color(0, 0, 0, 0.38))
+ctx.setStrokeColor(color(0, 0, 0, 0.5))
 ctx.strokePath()
 ctx.restoreGState()
 // 外周のハイライト
 ctx.addPath(circle(barrelR - 1.5))
-ctx.setStrokeColor(color(255, 255, 255, 0.35))
+ctx.setStrokeColor(color(255, 255, 255, 0.5))
 ctx.setLineWidth(3)
 ctx.strokePath()
 
@@ -98,7 +98,7 @@ ctx.fillPath()
 ctx.saveGState()
 ctx.addPath(ring(318, 306))
 ctx.clip(using: .evenOdd)
-ctx.drawLinearGradient(gradient([(0, color(150, 153, 160)), (1, color(30, 31, 35))]),
+ctx.drawLinearGradient(gradient([(0, color(190, 193, 200)), (1, color(18, 19, 22))]),
                        start: CGPoint(x: center.x, y: center.y + 318),
                        end: CGPoint(x: center.x, y: center.y - 318), options: [])
 ctx.restoreGState()
@@ -147,15 +147,15 @@ for k in 0..<blades {
     ctx.addPath(path)
     ctx.clip()
     let mid = CGFloat(k) / CGFloat(blades)
-    let lift = 0.82 + 0.28 * (0.5 + 0.5 * sin(mid * 2 * .pi + 0.9))  // 羽根ごとに少し明るさを変える
-    let dark = color(26 * lift, 28 * lift, 33 * lift)
-    let light = color(98 * lift, 102 * lift, 112 * lift)
+    let lift = 0.75 + 0.4 * (0.5 + 0.5 * sin(mid * 2 * .pi + 0.9))  // 羽根ごとに少し明るさを変える
+    let dark = color(12 * lift, 13 * lift, 16 * lift)
+    let light = color(128 * lift, 133 * lift, 145 * lift)
     let outer = point(rim, atan2(vk.y - center.y, vk.x - center.x) + 0.55)
-    ctx.drawLinearGradient(gradient([(0, dark), (0.65, light), (1, color(70 * lift, 73 * lift, 80 * lift))]),
+    ctx.drawLinearGradient(gradient([(0, dark), (0.65, light), (1, color(78 * lift, 82 * lift, 90 * lift))]),
                            start: vk, end: outer, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
     // 隣の羽根の下に潜る側の影
     ctx.addPath({ let p = CGMutablePath(); p.move(to: vk1); p.addQuadCurve(to: rimPoints[k], control: controls[k]); return p }())
-    ctx.setStrokeColor(color(0, 0, 0, 0.55))
+    ctx.setStrokeColor(color(0, 0, 0, 0.7))
     ctx.setLineWidth(16)
     ctx.strokePath()
     ctx.restoreGState()
@@ -165,7 +165,7 @@ for k in 0..<blades {
     edge.move(to: vk)
     edge.addQuadCurve(to: rimPoints[prev], control: controls[prev])
     ctx.addPath(edge)
-    ctx.setStrokeColor(color(225, 228, 235, 0.45))
+    ctx.setStrokeColor(color(235, 238, 245, 0.7))
     ctx.setLineWidth(2.5)
     ctx.strokePath()
 }
@@ -179,7 +179,7 @@ opening.closeSubpath()
 ctx.saveGState()
 ctx.addPath(opening)
 ctx.clip()
-ctx.drawRadialGradient(gradient([(0, color(22, 30, 52)), (0.7, color(6, 8, 16)), (1, color(0, 0, 0))]),
+ctx.drawRadialGradient(gradient([(0, color(24, 34, 62)), (0.6, color(3, 4, 9)), (1, color(0, 0, 0))]),
                        startCenter: CGPoint(x: center.x - 20, y: center.y + 25), startRadius: 0,
                        endCenter: center, endRadius: openingR, options: [.drawsAfterEndLocation])
 // コーティングの反射(緑・紫・赤みのある弧)
@@ -214,7 +214,7 @@ ctx.strokePath()
 ctx.saveGState()
 ctx.addPath(circle(330))
 ctx.clip()
-ctx.drawRadialGradient(gradient([(0, color(255, 255, 255, 0.20)), (1, color(255, 255, 255, 0))]),
+ctx.drawRadialGradient(gradient([(0, color(255, 255, 255, 0.24)), (1, color(255, 255, 255, 0))]),
                        startCenter: CGPoint(x: center.x - 120, y: center.y + 170), startRadius: 0,
                        endCenter: CGPoint(x: center.x - 120, y: center.y + 170), endRadius: 260, options: [])
 ctx.restoreGState()
