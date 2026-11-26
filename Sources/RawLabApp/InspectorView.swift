@@ -10,6 +10,9 @@ struct InspectorView: View {
     var body: some View {
         Form {
             if model.selectedPhoto != nil {
+                Section("レベル") {
+                    HistogramView(histogram: model.histogram, showClipping: $model.showClipping)
+                }
                 versionSection
                 decoderSection
                 infoSection

@@ -142,6 +142,13 @@ final class AppModel {
     /// 左右で比較するときの境目(画像幅に対する割合)
     var splitPosition: CGFloat = 0.5
 
+    // レベル表示(ヒストグラム)と白飛び・黒つぶれ表示
+    var histogram: Histogram?
+    var showClipping = false {
+        didSet { if oldValue != showClipping { rerender() } }
+    }
+    var clippingOverlay: CGImage?
+
     // スポイト(ホワイトバランス)
     var isEyedropperActive = false
 
@@ -603,12 +610,17 @@ final class AppModel {
         guard let b = hoverDecoderID.flatMap({ decoderBases[$0] }) ?? base else { return }
         let box = ImageBox(image: b.image)
         let settings = hoverSettings ?? self.settings
+        let clipping = showClipping
         renderTask = Task {
-            let cg = await Task.detached(priority: .userInitiated) {
-                DevelopPipeline.renderCGImage(DevelopPipeline.apply(settings, to: box.image))
+            let result = await Task.detached(priority: .userInitiated) { () -> (CGImage, Histogram?, CGImage?)? in
+                guard let cg = DevelopPipeline.renderCGImage(DevelopPipeline.apply(settings, to: box.image))
+                else { return nil }
+                return (cg, Histogram.compute(from: cg), clipping ? Histogram.clippingOverlay(from: cg) : nil)
             }.value
-            guard !Task.isCancelled, let cg else { return }
-            preview = cg
+            guard !Task.isCancelled, let result else { return }
+            preview = result.0
+            histogram = result.1
+            clippingOverlay = result.2
         }
     }
 

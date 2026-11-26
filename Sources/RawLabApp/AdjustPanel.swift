@@ -289,6 +289,12 @@ struct PreviewArea: View {
                 Image(decorative: model.compareMode == .before ? (model.beforePreview ?? image) : image, scale: 1)
                     .resizable()
                     .scaledToFit()
+                    .overlay {
+                        // 白飛び(赤)・黒つぶれ(青)。補正後の画像から作るので「補正前」表示のときは出さない
+                        if model.showClipping, model.compareMode != .before, let overlay = model.clippingOverlay {
+                            Image(decorative: overlay, scale: 1).resizable().scaledToFit().allowsHitTesting(false)
+                        }
+                    }
                     .overlay { if model.compareMode == .split { splitOverlay } }
                     .overlay(alignment: .topLeading) {
                         if model.compareMode == .before { badge("補正前").padding(8) }
