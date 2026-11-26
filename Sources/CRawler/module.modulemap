@@ -1,0 +1,5 @@
+module CRawler [system] {
+    header "rawler.h"
+    link "rawler_ffi"
+    export *
+}
