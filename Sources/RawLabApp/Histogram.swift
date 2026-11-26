@@ -7,6 +7,8 @@ struct Histogram: Sendable {
     var green: [Float]
     var blue: [Float]
     var luminance: [Float]
+    /// 輝度の画素数そのもの(表示用に縮めていない。「自動」レベルの計算用)
+    var luminanceCounts: [Float]
     /// どれかのチャンネルが 255 に達している画素の割合
     var highlightClipping: Double
     /// すべてのチャンネルが 0 の画素の割合
@@ -38,7 +40,7 @@ struct Histogram: Sendable {
         // 端の山(白飛び・黒つぶれ)で全体が潰れないよう、端を除いた最大値で正規化
         let peak = max(1, [r, g, b, l].map { $0[1..<255].max() ?? 1 }.max() ?? 1)
         func norm(_ a: [Float]) -> [Float] { a.map { min($0 / peak, 1) } }
-        return Histogram(red: norm(r), green: norm(g), blue: norm(b), luminance: norm(l),
+        return Histogram(red: norm(r), green: norm(g), blue: norm(b), luminance: norm(l), luminanceCounts: l,
                          highlightClipping: Double(high) / Double(count),
                          shadowClipping: Double(low) / Double(count))
     }

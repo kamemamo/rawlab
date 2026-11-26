@@ -876,13 +876,14 @@ final class AppModel {
     /// 輝度ヒストグラムの両端 0.1% を切って黒・白の点を決める
     func autoLevels() {
         guard let h = toneHistogram else { return }
-        let total = h.luminance.reduce(0, +)
+        let counts = h.luminanceCounts
+        let total = counts.reduce(0, +)
         guard total > 0 else { return }
         func percentile(_ p: Float, fromTop: Bool) -> Double {
             var acc: Float = 0
             let indices = fromTop ? Array((0..<256).reversed()) : Array(0..<256)
             for i in indices {
-                acc += h.luminance[i]
+                acc += counts[i]
                 if acc / total >= p { return Double(i) / 255 }
             }
             return fromTop ? 1 : 0

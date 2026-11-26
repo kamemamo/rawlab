@@ -68,10 +68,11 @@ struct LevelsEditor: View {
             .fill(fill)
             .overlay(Triangle().stroke(Color.white.opacity(0.8), lineWidth: 1))
             .frame(width: 14, height: 12)
-            .position(x: x, y: 13)
+            // つかめる範囲は三角の周りだけ(.position の前に付けないと帯全体がつかむ範囲になる)
             .contentShape(Rectangle().inset(by: -6))
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("levels"))
                 .onChanged { onDrag($0.location.x) })
+            .position(x: x, y: 13)
     }
 }
 
