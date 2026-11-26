@@ -433,6 +433,7 @@ struct PreviewArea: View {
                     .overlay { colorPickOverlay }
                     .overlay { cropOverlay }
                     .overlay { eyedropperOverlay }
+                    .overlay { splitHandle }
                     .padding(12)
             } else if model.isDecoding {
                 ProgressView("デコード中…").controlSize(.large).foregroundStyle(.white)
@@ -481,17 +482,6 @@ struct PreviewArea: View {
                     .foregroundStyle(.white, .black.opacity(0.5))
                     .position(x: x, y: geo.size.height / 2)
                     .allowsHitTesting(false)
-                // つかむ場所は線より広めに
-                Color.clear
-                    .frame(width: 24, height: geo.size.height)
-                    .contentShape(Rectangle())
-                    .position(x: x, y: geo.size.height / 2)
-                    .gesture(DragGesture(coordinateSpace: .named("split")).onChanged { v in
-                        model.splitPosition = min(max(v.location.x / geo.size.width, 0.02), 0.98)
-                    })
-                    .onHover { inside in
-                        if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-                    }
                 badge("補正前").padding(8)
                 badge("補正後").padding(8)
                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -564,6 +554,28 @@ struct PreviewArea: View {
                         }
                     }
             }
+        }
+    }
+
+    /// 左右で比較の境目をつかむ場所。ほかのクリック用の層(色の系統選び・等倍の場所選び・虫眼鏡)より上に置く。
+    /// 境目の周りだけがつかめる範囲なので、それ以外のクリックは下の層に届く
+    @ViewBuilder
+    private var splitHandle: some View {
+        if model.compareMode == .split {
+            GeometryReader { geo in
+                let x = geo.size.width * model.splitPosition
+                Color.clear
+                    .frame(width: 24, height: geo.size.height)
+                    .contentShape(Rectangle())
+                    .position(x: x, y: geo.size.height / 2)
+                    .gesture(DragGesture(coordinateSpace: .named("splitHandle")).onChanged { v in
+                        model.splitPosition = min(max(v.location.x / geo.size.width, 0.02), 0.98)
+                    })
+                    .onHover { inside in
+                        if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                    }
+            }
+            .coordinateSpace(name: "splitHandle")
         }
     }
 
