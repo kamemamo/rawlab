@@ -3,7 +3,7 @@ import Foundation
 
 /// 下のパネルのタブ。補正項目 + デコーダー
 enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
-    case exposure, temperature, tint, contrast, highlights, shadows, vibrance, saturation
+    case exposure, whiteBalance, contrast, highlights, shadows, vibrance, saturation
     case noiseReduction, sharpness
     case decoder
 
@@ -12,8 +12,7 @@ enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .exposure: "露出"
-        case .temperature: "色温度"
-        case .tint: "色かぶり"
+        case .whiteBalance: "ホワイトバランス"
         case .contrast: "コントラスト"
         case .highlights: "ハイライト"
         case .shadows: "シャドウ"
@@ -25,12 +24,17 @@ enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// デコーダータブは nil
+    /// ホワイトバランスは 2 方向のマス目(横: 色温度 9 段階、縦: 色かぶり 5 段階)
+    var grid: (x: AdjustParam, y: AdjustParam)? {
+        guard self == .whiteBalance else { return nil }
+        return (AdjustParam(\.temperature, -5000...5000, coarse: 1000, fine: 100, format: "%+.0f K", count: 9),
+                AdjustParam(\.tint, -60...60, coarse: 20, fine: 4, format: "%+.0f", count: 5))
+    }
+
+    /// デコーダー・ホワイトバランスは nil
     var param: AdjustParam? {
         switch self {
         case .exposure: AdjustParam(\.exposure, -2.5...2.5, coarse: 0.5, fine: 0.1, format: "%+.1f EV")
-        case .temperature: AdjustParam(\.temperature, -2500...2500, coarse: 500, fine: 100, format: "%+.0f K")
-        case .tint: AdjustParam(\.tint, -50...50, coarse: 10, fine: 2, format: "%+.0f")
         case .contrast: AdjustParam(\.contrast, -1...1, coarse: 0.2, fine: 0.04, format: "%+.2f")
         case .highlights: AdjustParam(\.highlights, 0...1, coarse: 0.1, fine: 0.02, format: "%.2f")
         case .shadows: AdjustParam(\.shadows, -1...1, coarse: 0.2, fine: 0.04, format: "%+.2f")
@@ -38,7 +42,7 @@ enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
         case .saturation: AdjustParam(\.saturation, -1...1, coarse: 0.2, fine: 0.04, format: "%+.2f")
         case .noiseReduction: AdjustParam(\.noiseReduction, 0...1, coarse: 0.1, fine: 0.02, format: "%.2f", usesCrop: true)
         case .sharpness: AdjustParam(\.sharpness, 0...1, coarse: 0.1, fine: 0.02, format: "%.2f", usesCrop: true)
-        case .decoder: nil
+        case .whiteBalance, .decoder: nil
         }
     }
 }
@@ -46,7 +50,8 @@ enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
 /// 1 つの補正項目の段階の作り方。
 /// 粗い 11 段階(範囲全体)→ 選ぶと、その値を中心にした細かい 11 段階に切り替わる。
 struct AdjustParam: @unchecked Sendable {
-    static let count = 11
+    /// 並べる段階の数
+    let count: Int
 
     let keyPath: WritableKeyPath<DevelopSettings, Double>
     let range: ClosedRange<Double>
@@ -57,7 +62,8 @@ struct AdjustParam: @unchecked Sendable {
     let usesCrop: Bool
 
     init(_ keyPath: WritableKeyPath<DevelopSettings, Double>, _ range: ClosedRange<Double>,
-         coarse: Double, fine: Double, format: String, usesCrop: Bool = false) {
+         coarse: Double, fine: Double, format: String, usesCrop: Bool = false, count: Int = 11) {
+        self.count = count
         self.keyPath = keyPath
         self.range = range
         self.coarseStep = coarse
@@ -66,15 +72,17 @@ struct AdjustParam: @unchecked Sendable {
         self.usesCrop = usesCrop
     }
 
+    /// 範囲がマイナスを含むなら 0 を真ん中に、そうでなければ下限から並べる
     var coarseValues: [Double] {
-        (0..<Self.count).map { round(range.lowerBound + Double($0) * coarseStep) }
+        let start = range.lowerBound < 0 ? -Double(count / 2) * coarseStep : range.lowerBound
+        return (0..<count).map { round(start + Double($0) * coarseStep) }
     }
 
     /// 今の値を真ん中にした細かい段階。範囲の端ではずらして 11 個そろえる
     func fineValues(around value: Double) -> [Double] {
-        let half = Double(Self.count / 2) * fineStep
+        let half = Double(count / 2) * fineStep
         let start = min(max(value - half, range.lowerBound), range.upperBound - 2 * half)
-        return (0..<Self.count).map { round(start + Double($0) * fineStep) }
+        return (0..<count).map { round(start + Double($0) * fineStep) }
     }
 
     func clamp(_ v: Double) -> Double { round(min(max(v, range.lowerBound), range.upperBound)) }

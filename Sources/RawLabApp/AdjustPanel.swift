@@ -15,11 +15,13 @@ struct AdjustPanel: View {
             Group {
                 if model.selectedTab == .decoder {
                     decoderStrip
+                } else if model.selectedTab.grid != nil {
+                    wbGrid
                 } else {
                     variationStrip
                 }
             }
-            .frame(height: 132)
+            .frame(height: model.selectedTab.grid != nil ? 300 : 132)
             .padding(.horizontal, 10)
             .padding(.top, 8)
             controls
@@ -31,6 +33,16 @@ struct AdjustPanel: View {
         .focused($focused)
         .onKeyPress(.leftArrow) { model.nudge(-1); return .handled }
         .onKeyPress(.rightArrow) { model.nudge(1); return .handled }
+        .onKeyPress(.upArrow) {
+            guard model.selectedTab.grid != nil else { return .ignored }
+            model.nudgeVertical(1)
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            guard model.selectedTab.grid != nil else { return .ignored }
+            model.nudgeVertical(-1)
+            return .handled
+        }
     }
 
     // MARK: タブ
@@ -83,7 +95,7 @@ struct AdjustPanel: View {
     }
 
     private func variationItems(cropPoints: CGFloat?) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 0) {
             ForEach(model.variations) { v in
                 VStack(spacing: 3) {
                     Image(decorative: v.image, scale: 1)
@@ -101,12 +113,13 @@ struct AdjustPanel: View {
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(v.isCurrent ? accent : .white.opacity(0.7))
                 }
+                .padding(2)  // 見た目の隙間は内側に取り、マウスが外れる場所を作らない
                 .contentShape(Rectangle())
                 .onTapGesture {
                     model.pick(v.value)
                     focused = true
                 }
-                .onHover { inside in model.hover(inside ? v.value : nil) }
+                .onHover { inside in model.hover(v.value, inside: inside) }
             }
         }
         .overlay {
@@ -116,8 +129,53 @@ struct AdjustPanel: View {
         }
     }
 
+    /// ホワイトバランス: 横に色温度、縦に色かぶり
+    private var wbGrid: some View {
+        let g = model.selectedTab.grid!
+        let cols = model.gridColumns
+        return VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Text("色かぶり").font(.caption2).foregroundStyle(.white.opacity(0.5)).frame(width: 44)
+                ForEach(Array(cols.enumerated()), id: \.offset) { _, x in
+                    Text(g.x.label(x))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.7))
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            ForEach(Array(model.gridRows.enumerated()), id: \.offset) { row, y in
+                HStack(spacing: 0) {
+                    Text(g.y.label(y))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.7))
+                        .frame(width: 44)
+                    ForEach(model.gridVariations.filter { $0.id / max(cols.count, 1) == row }) { v in
+                        Image(decorative: v.image, scale: 1)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 3)
+                                    .stroke(v.isCurrent ? accent : .clear, lineWidth: 2)
+                            }
+                            .padding(2)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                model.pickGrid(x: v.x, y: v.y)
+                                focused = true
+                            }
+                            .onHover { inside in model.hoverGrid(x: v.x, y: v.y, inside: inside) }
+                    }
+                }
+            }
+        }
+        .overlay {
+            if model.gridVariations.isEmpty { ProgressView().controlSize(.small) }
+        }
+    }
+
     private var decoderStrip: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 0) {
             ForEach(model.decoderVariations) { d in
                 VStack(spacing: 3) {
                     Image(decorative: d.image, scale: 1)
@@ -132,9 +190,10 @@ struct AdjustPanel: View {
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(d.decoderID == model.decoderID ? accent : .white.opacity(0.7))
                 }
+                .padding(.horizontal, 4)
                 .contentShape(Rectangle())
                 .onTapGesture { model.pickDecoder(d.decoderID) }
-                .onHover { inside in model.hoverDecoder(inside ? d.decoderID : nil) }
+                .onHover { inside in model.hoverDecoder(d.decoderID, inside: inside) }
             }
             if model.isLoadingVariations {
                 ProgressView().controlSize(.small).padding(.horizontal, 20)
@@ -147,7 +206,23 @@ struct AdjustPanel: View {
 
     private var controls: some View {
         HStack(spacing: 10) {
-            if let p = model.selectedTab.param {
+            if let g = model.selectedTab.grid {
+                Text("色温度").foregroundStyle(.white.opacity(0.7))
+                Button { model.nudge(-1) } label: { Image(systemName: "minus") }.help("←キーでも動かせます")
+                Text(model.gridLabel(\.x)).font(.body.monospacedDigit()).frame(minWidth: 70)
+                Button { model.nudge(1) } label: { Image(systemName: "plus") }.help("→キーでも動かせます")
+                Text("色かぶり").foregroundStyle(.white.opacity(0.7))
+                Button { model.nudgeVertical(-1) } label: { Image(systemName: "minus") }.help("↓キーでも動かせます")
+                Text(model.gridLabel(\.y)).font(.body.monospacedDigit()).frame(minWidth: 40)
+                Button { model.nudgeVertical(1) } label: { Image(systemName: "plus") }.help("↑キーでも動かせます")
+                let fine = model.fineTabs.contains(model.selectedTab)
+                Button(fine ? "粗く選び直す" : "細かく") { model.toggleFine() }
+                Text(fine ? "細かい段階(\(g.x.label(g.x.fineStep)) / \(g.y.label(g.y.fineStep)) 刻み)" : "粗い段階")
+                    .font(.caption).foregroundStyle(.white.opacity(0.5))
+                Button("0 に戻す") { model.resetCurrentParam() }
+                Text("色温度 + で暖かく、色かぶり + でマゼンタ寄り")
+                    .font(.caption).foregroundStyle(.white.opacity(0.5))
+            } else if let p = model.selectedTab.param {
                 Text(model.selectedTab.title).foregroundStyle(.white.opacity(0.7))
                 Button { model.nudge(-1) } label: { Image(systemName: "minus") }
                     .help("←キーでも動かせます")

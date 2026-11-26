@@ -13,6 +13,15 @@ struct Variation: Identifiable {
     let isCurrent: Bool
 }
 
+/// ホワイトバランスのマス目の 1 枚(x: 色温度, y: 色かぶり)
+struct GridVariation: Identifiable {
+    let id: Int
+    let x: Double
+    let y: Double
+    let image: CGImage
+    let isCurrent: Bool
+}
+
 struct DecoderVariation: Identifiable {
     var id: String { decoderID }
     let decoderID: String
@@ -93,12 +102,16 @@ final class AppModel {
                 rerender()
             }
             variations = []  // 前のタブのサムネイルを残さない
+            gridVariations = []
             refreshVariations()
         }
     }
     /// 細かい段階で表示中のタブ
     var fineTabs: Set<AdjustTab> = []
     var variations: [Variation] = []
+    var gridVariations: [GridVariation] = []
+    var gridColumns: [Double] = []
+    var gridRows: [Double] = []
     var decoderVariations: [DecoderVariation] = []
     var isLoadingVariations = false
     /// 等倍で切り出す場所(画像に対する割合、左上原点)
@@ -377,15 +390,53 @@ final class AppModel {
         if s == settings { refreshVariations() } else { settings = s }
     }
 
-    /// ← → / − + で細かい刻みずつ動かす
+    /// マス目をクリック。色温度と色かぶりを同時に決める
+    func pickGrid(x: Double, y: Double) {
+        guard let g = selectedTab.grid else { return }
+        hoverSettings = nil
+        fineTabs.insert(selectedTab)
+        var s = settings
+        s[keyPath: g.x.keyPath] = g.x.clamp(x)
+        s[keyPath: g.y.keyPath] = g.y.clamp(y)
+        if s == settings { refreshVariations() } else { settings = s }
+    }
+
+    func hoverGrid(x: Double, y: Double, inside: Bool) {
+        guard let g = selectedTab.grid else { return }
+        var s = settings
+        s[keyPath: g.x.keyPath] = x
+        s[keyPath: g.y.keyPath] = y
+        setHover(s, inside: inside)
+    }
+
+    /// ← → / − + で細かい刻みずつ動かす(ホワイトバランスでは色温度)
     func nudge(_ direction: Int) {
-        guard let p = selectedTab.param else { return }
+        guard let p = selectedTab.param ?? selectedTab.grid?.x else { return }
+        settings[keyPath: p.keyPath] = p.clamp(settings[keyPath: p.keyPath] + Double(direction) * p.fineStep)
+    }
+
+    /// ↑ ↓(ホワイトバランスの色かぶり)
+    func nudgeVertical(_ direction: Int) {
+        guard let p = selectedTab.grid?.y else { return }
         settings[keyPath: p.keyPath] = p.clamp(settings[keyPath: p.keyPath] + Double(direction) * p.fineStep)
     }
 
     func resetCurrentParam() {
+        if let g = selectedTab.grid {
+            var s = settings
+            s[keyPath: g.x.keyPath] = 0
+            s[keyPath: g.y.keyPath] = 0
+            settings = s
+            return
+        }
         guard let p = selectedTab.param else { return }
         settings[keyPath: p.keyPath] = p.clamp(0)
+    }
+
+    func gridLabel(_ axis: KeyPath<(x: AdjustParam, y: AdjustParam), AdjustParam>) -> String {
+        guard let g = selectedTab.grid else { return "" }
+        let p = g[keyPath: axis]
+        return p.label(settings[keyPath: p.keyPath])
     }
 
     func toggleFine() {
@@ -402,21 +453,34 @@ final class AppModel {
         return p.label(settings[keyPath: p.keyPath])
     }
 
-    /// サムネイルにマウスを乗せている間、大画面をその値で表示
-    func hover(_ value: Double?) {
+    /// サムネイルにマウスを乗せている間、大画面をその値で表示。
+    /// 隣へ移るとき「入った」より後に「出た」が来ることがあるので、出たのが今表示中のものの場合だけ戻す
+    func hover(_ value: Double, inside: Bool) {
         guard let p = selectedTab.param else { return }
-        if let value {
-            var s = settings
-            s[keyPath: p.keyPath] = value
+        var s = settings
+        s[keyPath: p.keyPath] = value
+        setHover(s, inside: inside)
+    }
+
+    private func setHover(_ s: DevelopSettings, inside: Bool) {
+        if inside {
             hoverSettings = s
-        } else {
+        } else if hoverSettings == s {
             hoverSettings = nil
+        } else {
+            return
         }
         rerender()
     }
 
-    func hoverDecoder(_ id: String?) {
-        hoverDecoderID = id
+    func hoverDecoder(_ id: String, inside: Bool) {
+        if inside {
+            hoverDecoderID = id
+        } else if hoverDecoderID == id {
+            hoverDecoderID = nil
+        } else {
+            return
+        }
         rerender()
     }
 
@@ -535,6 +599,10 @@ final class AppModel {
             loadDecoderVariations()
             return
         }
+        if let g = selectedTab.grid, let base {
+            renderGrid(g, source: base.small)
+            return
+        }
         guard let p = selectedTab.param, let base else { return }
         let source: CIImage
         if p.usesCrop {
@@ -566,6 +634,41 @@ final class AppModel {
             }.value
             guard !Task.isCancelled else { return }
             variations = result
+        }
+    }
+
+    /// ホワイトバランスのマス目: 横に色温度、縦に色かぶり(上がプラス)
+    private func renderGrid(_ g: (x: AdjustParam, y: AdjustParam), source: CIImage) {
+        variationTask?.cancel()
+        let settings = self.settings
+        let cx = settings[keyPath: g.x.keyPath]
+        let cy = settings[keyPath: g.y.keyPath]
+        let fine = fineTabs.contains(selectedTab)
+        let xs = fine ? g.x.fineValues(around: cx) : g.x.coarseValues
+        let ys = Array((fine ? g.y.fineValues(around: cy) : g.y.coarseValues).reversed())
+        let box = ImageBox(image: source)
+        variationTask = Task {
+            try? await Task.sleep(for: .milliseconds(20))
+            guard !Task.isCancelled else { return }
+            let result = await Task.detached(priority: .userInitiated) { () -> [GridVariation] in
+                var items: [GridVariation] = []
+                for (row, y) in ys.enumerated() {
+                    for (col, x) in xs.enumerated() {
+                        var s = settings
+                        s[keyPath: g.x.keyPath] = x
+                        s[keyPath: g.y.keyPath] = y
+                        guard let cg = DevelopPipeline.renderCGImage(DevelopPipeline.apply(s, to: box.image)) else { continue }
+                        items.append(GridVariation(
+                            id: row * xs.count + col, x: x, y: y, image: cg,
+                            isCurrent: abs(x - cx) < g.x.fineStep / 2 && abs(y - cy) < g.y.fineStep / 2))
+                    }
+                }
+                return items
+            }.value
+            guard !Task.isCancelled else { return }
+            gridColumns = xs
+            gridRows = ys
+            gridVariations = result
         }
     }
 
