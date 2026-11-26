@@ -87,8 +87,11 @@ if [ "$SKIP_NOTARIZE" != 1 ]; then
   xcrun stapler staple "$APP"
   rm "$ZIP"
   # --- 6. 公証済みのアプリと説明書をまとめる ---
-  cp docs/はじめにお読みください.txt "$DIST/"
-  (cd "$DIST" && ditto -c -k --sequesterRsrc RawLab.app はじめにお読みください.txt "RawLab-$VERSION.zip")
+  PKG=$DIST/RawLab-$VERSION
+  mkdir -p "$PKG"
+  ditto "$APP" "$PKG/RawLab.app"
+  cp docs/はじめにお読みください.txt "$PKG/"
+  ditto -c -k --sequesterRsrc --keepParent "$PKG" "$ZIP"
   spctl -a -vv -t exec "$APP"
   echo "✓ $ZIP(公証済み)"
 else
