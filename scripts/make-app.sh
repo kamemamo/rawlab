@@ -6,8 +6,18 @@ cd "$(dirname "$0")/.."
 swift build -c release --product RawLabApp
 APP=build/RawLab.app
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/RawLabApp "$APP/Contents/MacOS/RawLab"
+
+# アイコン: Resources/AppIcon.png(scripts/make-icon.swift で生成)から .icns を作る
+[ -f Resources/AppIcon.png ] || swift scripts/make-icon.swift Resources/AppIcon.png
+ICONSET=build/AppIcon.iconset
+rm -rf "$ICONSET" && mkdir -p "$ICONSET"
+for s in 16 32 128 256 512; do
+  sips -z $s $s Resources/AppIcon.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
+  sips -z $((s * 2)) $((s * 2)) Resources/AppIcon.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -15,6 +25,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>local.rawlab</string>
   <key>CFBundleName</key><string>RawLab</string>
   <key>CFBundleExecutable</key><string>RawLab</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1</string>
   <key>LSMinimumSystemVersion</key><string>27.0</string>
