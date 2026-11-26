@@ -1,0 +1,28 @@
+RawLab — RAW 現像アプリ(macOS)
+
+■ 動作環境
+・Apple シリコン(M1 以降)の Mac
+・macOS 27 以降
+
+■ インストール
+1. RawLab.app を「アプリケーション」フォルダにドラッグしてください。
+2. ダブルクリックで起動します(Apple の公証済みなので、そのまま開けます)。
+
+■ 使い方
+1. 左下の「+ フォルダを追加」で、RAW の入ったフォルダを選びます。
+   RAW ファイルは移動・変更しません(読むだけです)。
+2. 写真を選び、下のタブ(露出・ホワイトバランスなど)のサムネイルから選んで調整します。
+3. 右上の書き出しボタンで JPEG などに書き出します。
+   書き出し先: ~/ピクチャ/RawLab Export/<年>/<撮影日>/
+
+・現像の設定は ~/ピクチャ/RawLab Library/ に保存されます。
+・写真をインターネットに送ることはありません(すべてこの Mac の中で動きます)。
+
+■ 対応している RAW
+Nikon(NEF)、Canon(CR3/CR2)、Sony(ARW)、OM System / Olympus(ORF)、
+Fujifilm(RAF)、Panasonic(RW2)、Pentax(PEF)、Samsung(SRW)、DNG ほか
+
+■ ライセンス
+RawLab は LibRaw・rawler などのオープンソースソフトウェアを使っています。
+一覧と全文: RawLab.app を右クリック →「パッケージの内容を表示」→
+Contents/Resources/Licenses/

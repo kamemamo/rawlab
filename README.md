@@ -54,6 +54,21 @@ swift run rawlab library photos
 swift run rawlab library export /Volumes/Photo/2026/DSC_0001.NEF
 ```
 
+## 知り合いに配る(Developer ID 署名 + 公証)
+
+```sh
+# 最初の 1 回だけ: 公証用のログイン情報をキーチェーンに保存(パスワードは App 用パスワード)
+xcrun notarytool store-credentials rawlab-notary --apple-id <Apple ID> --team-id <チーム ID>
+
+# 配布用 zip を作る → build/dist/RawLab-<版>.zip
+VERSION=0.1.0 ./scripts/make-dist.sh
+```
+
+- Homebrew のライブラリ(LibRaw・libomp・jpeg-turbo・lcms2)をアプリに同梱し、参照先を書き換える
+- ライセンス表記を `Contents/Resources/Licenses/` に入れる(一覧は `./scripts/make-notices.sh` で作り直す)
+- Hardened Runtime で署名 → 公証 → staple → 説明書(`docs/はじめにお読みください.txt`)と一緒に zip
+- 動作条件: Apple シリコン、macOS 27 以降(Homebrew の LibRaw に合わせているため)
+
 ## 構成
 | 場所 | 役割 |
 |---|---|
