@@ -24,6 +24,10 @@ public struct DevelopSettings: Hashable, Sendable, Codable {
     public var curve: [CurvePoint] = []
     /// ハイライト圧縮 0...1。1 を超える明るさを肩の丸いカーブで 1 以内に収める(白飛びの復元と組み合わせる)
     public var highlightRolloff: Double = 0
+    /// 色ごとの露出(EV)。カメラの色を変換した後のリニアな R・G・B にそれぞれ 2^EV を掛ける
+    public var exposureR: Double = 0
+    public var exposureG: Double = 0
+    public var exposureB: Double = 0
 
     public init() {}
 
@@ -113,6 +117,13 @@ public enum DevelopPipeline {
         }
         if s.temperature != 0 || s.tint != 0 {
             img = whiteBalance(img, temperature: s.temperature, tint: s.tint)
+        }
+        if s.exposureR != 0 || s.exposureG != 0 || s.exposureB != 0 {
+            img = img.applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": CIVector(x: pow(2, s.exposureR), y: 0, z: 0, w: 0),
+                "inputGVector": CIVector(x: 0, y: pow(2, s.exposureG), z: 0, w: 0),
+                "inputBVector": CIVector(x: 0, y: 0, z: pow(2, s.exposureB), w: 0),
+            ])
         }
         if s.highlightRolloff > 0 {
             img = rolloff(img, amount: s.highlightRolloff)
@@ -345,6 +356,7 @@ extension DevelopSettings {
     private enum Keys: String, CodingKey {
         case exposure, temperature, tint, contrast, highlights, shadows, vibrance, saturation, noiseReduction, sharpness
         case levelsBlack, levelsGamma, levelsWhite, curve, highlightRolloff
+        case exposureR, exposureG, exposureB
     }
 
     /// 後から足した項目は既定値なら書かない(既存バージョンの内容ハッシュが変わって
@@ -366,6 +378,9 @@ extension DevelopSettings {
         if levelsWhite != 1 { try c.encode(levelsWhite, forKey: .levelsWhite) }
         if !curve.isEmpty { try c.encode(curve, forKey: .curve) }
         if highlightRolloff != 0 { try c.encode(highlightRolloff, forKey: .highlightRolloff) }
+        if exposureR != 0 { try c.encode(exposureR, forKey: .exposureR) }
+        if exposureG != 0 { try c.encode(exposureG, forKey: .exposureG) }
+        if exposureB != 0 { try c.encode(exposureB, forKey: .exposureB) }
     }
 
     public init(from decoder: Decoder) throws {
@@ -386,6 +401,9 @@ extension DevelopSettings {
         levelsWhite = try c.decodeIfPresent(Double.self, forKey: .levelsWhite) ?? 1
         curve = try c.decodeIfPresent([CurvePoint].self, forKey: .curve) ?? []
         highlightRolloff = try c.decodeIfPresent(Double.self, forKey: .highlightRolloff) ?? 0
+        exposureR = try c.decodeIfPresent(Double.self, forKey: .exposureR) ?? 0
+        exposureG = try c.decodeIfPresent(Double.self, forKey: .exposureG) ?? 0
+        exposureB = try c.decodeIfPresent(Double.self, forKey: .exposureB) ?? 0
     }
 }
 

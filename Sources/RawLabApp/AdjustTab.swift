@@ -3,7 +3,7 @@ import Foundation
 
 /// 下のパネルのタブ。補正項目 + デコーダー
 enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
-    case exposure, whiteBalance, contrast, highlights, rolloff, shadows, tone, vibrance, saturation
+    case exposure, whiteBalance, channelExposure, contrast, highlights, rolloff, shadows, tone, vibrance, saturation
     case noiseReduction, sharpness
     case decoder
 
@@ -13,6 +13,7 @@ enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .exposure: "露出"
         case .whiteBalance: "ホワイトバランス"
+        case .channelExposure: "色ごとの露出"
         case .contrast: "コントラスト"
         case .highlights: "ハイライト"
         case .rolloff: "ハイライト圧縮"
@@ -33,6 +34,14 @@ enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
                 AdjustParam(\.tint, -60...60, coarse: 12, fine: 4, format: "%+.0f", count: 3))
     }
 
+    /// 色ごとの露出: R・G・B の 3 段(それぞれ独立に選ぶ)
+    var channelParams: [AdjustParam]? {
+        guard self == .channelExposure else { return nil }
+        return [\DevelopSettings.exposureR, \.exposureG, \.exposureB].map {
+            AdjustParam($0, -1...1, coarse: 0.2, fine: 0.05, format: "%+.2f")
+        }
+    }
+
     /// レベル補正・トーンカーブはサムネイルではなく専用の編集画面(1 つのタブに並べる)
     var isToneEditor: Bool { self == .tone }
 
@@ -48,7 +57,7 @@ enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
         case .saturation: AdjustParam(\.saturation, -1...1, coarse: 0.2, fine: 0.04, format: "%+.2f")
         case .noiseReduction: AdjustParam(\.noiseReduction, 0...1, coarse: 0.1, fine: 0.02, format: "%.2f", usesCrop: true)
         case .sharpness: AdjustParam(\.sharpness, 0...1, coarse: 0.1, fine: 0.02, format: "%.2f", usesCrop: true)
-        case .whiteBalance, .tone, .decoder: nil
+        case .whiteBalance, .channelExposure, .tone, .decoder: nil
         }
     }
 }

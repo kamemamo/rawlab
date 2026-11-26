@@ -111,6 +111,7 @@ final class AppModel {
             }
             variations = []  // 前のタブのサムネイルを残さない
             gridVariations = []
+            channelVariations = [[], [], []]
             refreshVariations()
         }
     }
@@ -118,6 +119,8 @@ final class AppModel {
     var fineTabs: Set<AdjustTab> = []
     var variations: [Variation] = []
     var gridVariations: [GridVariation] = []
+    /// 色ごとの露出の 3 段 [R, G, B]
+    var channelVariations: [[Variation]] = [[], [], []]
     var gridColumns: [Double] = []
     var gridRows: [Double] = []
     var decoderVariations: [DecoderVariation] = []
@@ -442,6 +445,33 @@ final class AppModel {
         if s == settings { refreshVariations() } else { settings = s }
     }
 
+    /// 色ごとの露出の段をクリック
+    func pickChannel(_ row: Int, _ value: Double) {
+        guard let ps = selectedTab.channelParams else { return }
+        hoverSettings = nil
+        fineTabs.insert(selectedTab)
+        var s = settings
+        s[keyPath: ps[row].keyPath] = ps[row].clamp(value)
+        if s == settings { refreshVariations() } else { settings = s }
+    }
+
+    func hoverChannel(_ row: Int, _ value: Double, inside: Bool) {
+        guard let ps = selectedTab.channelParams else { return }
+        var s = settings
+        s[keyPath: ps[row].keyPath] = value
+        setHover(s, inside: inside)
+    }
+
+    func nudgeChannel(_ row: Int, _ direction: Int) {
+        guard let p = selectedTab.channelParams?[row] else { return }
+        settings[keyPath: p.keyPath] = p.clamp(settings[keyPath: p.keyPath] + Double(direction) * p.fineStep)
+    }
+
+    func channelLabel(_ row: Int) -> String {
+        guard let p = selectedTab.channelParams?[row] else { return "" }
+        return p.label(settings[keyPath: p.keyPath])
+    }
+
     /// マス目をクリック。色温度と色かぶりを同時に決める
     func pickGrid(x: Double, y: Double) {
         guard let g = selectedTab.grid else { return }
@@ -474,6 +504,12 @@ final class AppModel {
     }
 
     func resetCurrentParam() {
+        if let ps = selectedTab.channelParams {
+            var s = settings
+            for p in ps { s[keyPath: p.keyPath] = 0 }
+            settings = s
+            return
+        }
         if let g = selectedTab.grid {
             var s = settings
             s[keyPath: g.x.keyPath] = 0
@@ -728,6 +764,10 @@ final class AppModel {
             renderToneHistogram(source: base.small)
             return
         }
+        if let ps = selectedTab.channelParams, let base {
+            renderChannelRows(ps, source: base.small)
+            return
+        }
         if let g = selectedTab.grid, let base {
             renderGrid(g, source: base.small)
             return
@@ -763,6 +803,33 @@ final class AppModel {
             }.value
             guard !Task.isCancelled else { return }
             variations = result
+        }
+    }
+
+    /// 色ごとの露出: R・G・B それぞれの段階を 1 段ずつ並べる
+    private func renderChannelRows(_ ps: [AdjustParam], source: CIImage) {
+        variationTask?.cancel()
+        let settings = self.settings
+        let fine = fineTabs.contains(selectedTab)
+        let box = ImageBox(image: source)
+        variationTask = Task {
+            try? await Task.sleep(for: .milliseconds(20))
+            guard !Task.isCancelled else { return }
+            let rows = await Task.detached(priority: .userInitiated) { () -> [[Variation]] in
+                ps.enumerated().map { row, p in
+                    let current = settings[keyPath: p.keyPath]
+                    let values = fine ? p.fineValues(around: current) : p.coarseValues
+                    return values.enumerated().compactMap { i, v in
+                        var s = settings
+                        s[keyPath: p.keyPath] = v
+                        guard let cg = DevelopPipeline.renderCGImage(DevelopPipeline.apply(s, to: box.image)) else { return nil }
+                        return Variation(id: row * 100 + i, value: v, label: p.label(v), image: cg,
+                                         isCurrent: abs(v - current) < p.fineStep / 2)
+                    }
+                }
+            }.value
+            guard !Task.isCancelled else { return }
+            channelVariations = rows
         }
     }
 

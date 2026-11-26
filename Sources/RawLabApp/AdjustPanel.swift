@@ -18,6 +18,8 @@ struct AdjustPanel: View {
                     decoderStrip
                 } else if model.selectedTab.grid != nil {
                     wbGrid
+                } else if model.selectedTab.channelParams != nil {
+                    channelRows
                 } else if model.selectedTab == .tone {
                     // タブ名・下のボタンと同じ順に、左にレベル補正、右にトーンカーブ
                     HStack(alignment: .top, spacing: 14) {
@@ -30,7 +32,8 @@ struct AdjustPanel: View {
                     variationStrip
                 }
             }
-            .frame(height: model.selectedTab.grid != nil ? 200 : model.selectedTab.isToneEditor ? 190 : 132)
+            .frame(height: model.selectedTab.grid != nil || model.selectedTab.channelParams != nil
+                   ? 200 : model.selectedTab.isToneEditor ? 190 : 132)
             .padding(.horizontal, 10)
             .padding(.top, 8)
             controls
@@ -143,6 +146,46 @@ struct AdjustPanel: View {
         }
     }
 
+    /// 色ごとの露出: R・G・B の 3 段。それぞれの段で独立に選ぶ
+    private var channelRows: some View {
+        let colors: [Color] = [.red, .green, .blue]
+        return VStack(spacing: 0) {
+            ForEach(0..<3, id: \.self) { row in
+                HStack(spacing: 0) {
+                    Text(["R", "G", "B"][row])
+                        .font(.callout.bold())
+                        .foregroundStyle(colors[row])
+                        .frame(width: 30)
+                    ForEach(model.channelVariations[row]) { v in
+                        VStack(spacing: 1) {
+                            Image(decorative: v.image, scale: 1)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .stroke(v.isCurrent ? accent : .clear, lineWidth: 2)
+                                }
+                            Text(v.label)
+                                .font(.system(size: 9).monospacedDigit())
+                                .foregroundStyle(v.isCurrent ? accent : .white.opacity(0.6))
+                        }
+                        .padding(2)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            model.pickChannel(row, v.value)
+                            focused = true
+                        }
+                        .onHover { inside in model.hoverChannel(row, v.value, inside: inside) }
+                    }
+                }
+            }
+        }
+        .overlay {
+            if model.channelVariations.allSatisfy(\.isEmpty) { ProgressView().controlSize(.small) }
+        }
+    }
+
     /// ホワイトバランス: 横に色温度、縦に色かぶり
     private var wbGrid: some View {
         let g = model.selectedTab.grid!
@@ -232,7 +275,18 @@ struct AdjustPanel: View {
 
     private var controls: some View {
         HStack(spacing: 10) {
-            if let g = model.selectedTab.grid {
+            if model.selectedTab.channelParams != nil {
+                ForEach(0..<3, id: \.self) { row in
+                    Text(["R", "G", "B"][row]).foregroundStyle([Color.red, .green, .blue][row])
+                    Button { model.nudgeChannel(row, -1) } label: { Image(systemName: "minus") }
+                    Text(model.channelLabel(row)).font(.body.monospacedDigit()).frame(minWidth: 44)
+                    Button { model.nudgeChannel(row, 1) } label: { Image(systemName: "plus") }
+                }
+                let fine = model.fineTabs.contains(model.selectedTab)
+                Button(fine ? "粗く選び直す" : "細かく") { model.toggleFine() }
+                Button("0 に戻す") { model.resetCurrentParam() }
+                    .help("R・G・B すべてを 0 に戻す(単位は EV)")
+            } else if let g = model.selectedTab.grid {
                 Text("色温度").foregroundStyle(.white.opacity(0.7))
                 Button { model.nudge(-1) } label: { Image(systemName: "minus") }.help("←キーでも動かせます")
                 Text(model.gridLabel(\.x)).font(.body.monospacedDigit()).frame(minWidth: 70)

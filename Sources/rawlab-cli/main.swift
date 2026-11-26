@@ -32,6 +32,7 @@ options:
   --half                半分サイズで高速デコード
   --highlight <m>       白飛び: clip(白にする)| reconstruct(色を補って復元。RawLab エンジン / LibRaw)
   --rolloff <n>         ハイライト圧縮 0...1(1 を超えた明るさを丸めて収める)
+  --ev-r/--ev-g/--ev-b <n>  色ごとの露出 (EV)
   --levels <b,g,w>      レベル補正(黒,中間,白。例: 20,1.2,235)
   --curve <x:y,...>     トーンカーブ(0〜255。例: 64:48,192:208)
   --crop <N>            compare: 中央 N×N px を等倍で切り出して比較
@@ -83,6 +84,9 @@ func parse(_ args: ArraySlice<String>) throws -> Options {
             guard let m = HighlightMode(rawValue: v) else { throw DecoderError.failed("--highlight は clip か reconstruct") }
             o.decode.highlight = m
         case "--rolloff": o.develop.highlightRolloff = try number(a)
+        case "--ev-r": o.develop.exposureR = try number(a)
+        case "--ev-g": o.develop.exposureG = try number(a)
+        case "--ev-b": o.develop.exposureB = try number(a)
         case "--levels":
             // 黒,中間,白(黒と白は 0〜255、中間は 1.0 で変化なし)
             let v = try value(a).split(separator: ",").compactMap { Double($0) }
