@@ -5,7 +5,7 @@
 #   3. ライセンス表記を入れる
 #   4. Developer ID で署名(Hardened Runtime)
 #   5. Apple の公証を受けて、結果をアプリに貼り付ける(staple)
-#   6. build/dist/RawLab-<版>.zip にまとめる
+#   6. 説明書(テキストと図入り PDF)と一緒に build/dist/RawLab-<版>.zip にまとめる
 #
 # 使い方:
 #   ./scripts/make-dist.sh                 … 署名と公証まで
@@ -91,6 +91,8 @@ if [ "$SKIP_NOTARIZE" != 1 ]; then
   mkdir -p "$PKG"
   ditto "$APP" "$PKG/RawLab.app"
   cp docs/はじめにお読みください.txt "$PKG/"
+  ./scripts/make-manual.sh >/dev/null
+  cp "docs/RawLab マニュアル.pdf" "$PKG/"
   ditto -c -k --sequesterRsrc --keepParent "$PKG" "$ZIP"
   spctl -a -vv -t exec "$APP"
   echo "✓ $ZIP(公証済み)"

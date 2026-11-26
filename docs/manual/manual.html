@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>RawLab マニュアル</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 18mm 15mm; }
+  @page :first { margin: 0; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
+    font-size: 10pt; line-height: 1.7; color: #1d1d1f; margin: 0;
+  }
+  h1 { font-size: 20pt; font-weight: 600; margin: 0 0 4mm; padding-bottom: 2mm; border-bottom: 2px solid #1d1d1f; }
+  h2 { font-size: 13pt; font-weight: 600; margin: 7mm 0 2mm; }
+  h3 { font-size: 11pt; font-weight: 600; margin: 5mm 0 1.5mm; }
+  p { margin: 0 0 2.5mm; }
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+  figure { margin: 3mm 0 4mm; }
+  figure img { width: 100%; border-radius: 6px; border: 1px solid #d2d2d7; display: block; }
+  figcaption { font-size: 8.5pt; color: #6e6e73; margin-top: 1.5mm; }
+  table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; font-size: 9pt; }
+  th, td { border-bottom: 1px solid #e5e5ea; padding: 1.6mm 2mm; text-align: left; vertical-align: top; }
+  th { background: #f5f5f7; font-weight: 600; }
+  ol, ul { margin: 0 0 3mm; padding-left: 6mm; }
+  li { margin-bottom: 1mm; }
+  .note { background: #f5f5f7; border-radius: 6px; padding: 3mm 4mm; margin: 3mm 0; font-size: 9pt; }
+  .tip { background: #eaf3ff; border-radius: 6px; padding: 3mm 4mm; margin: 3mm 0; font-size: 9pt; }
+  .tip b, .note b { font-weight: 600; }
+  kbd { font-family: inherit; border: 1px solid #c7c7cc; border-bottom-width: 2px; border-radius: 4px; padding: 0 1.5mm; font-size: 8.5pt; background: #fff; }
+  .key { font-weight: 600; }
+
+  /* 表紙 */
+  .cover { height: 297mm; display: flex; flex-direction: column; align-items: center; justify-content: center;
+           background: #1c1c1e; color: #f5f5f7; text-align: center; }
+  .cover img { width: 62mm; margin-bottom: 10mm; }
+  .cover .title { font-size: 36pt; font-weight: 600; letter-spacing: 1px; }
+  .cover .sub { font-size: 13pt; color: #aeaeb2; margin-top: 3mm; }
+  .cover .ver { font-size: 10pt; color: #8e8e93; margin-top: 16mm; }
+
+  /* 番号付きの吹き出し */
+  .annot { position: relative; }
+  .annot img { width: 100%; border-radius: 6px; border: 1px solid #d2d2d7; display: block; }
+  .pin { position: absolute; width: 7mm; height: 7mm; margin: -3.5mm 0 0 -3.5mm; border-radius: 50%;
+         background: #0a84ff; color: #fff; font-weight: 600; font-size: 10pt; display: flex;
+         align-items: center; justify-content: center; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+  .num { display: inline-flex; width: 5mm; height: 5mm; border-radius: 50%; background: #0a84ff; color: #fff;
+         font-size: 8pt; font-weight: 600; align-items: center; justify-content: center; margin-right: 1.5mm; }
+
+  /* インストールの図 */
+  .flow { display: flex; align-items: center; justify-content: space-between; margin: 5mm 0; }
+  .box { border: 1.5px solid #1d1d1f; border-radius: 8px; padding: 3mm 3mm; text-align: center; font-size: 9pt; width: 37mm; background: #fff; }
+  .box .icon { font-size: 18pt; line-height: 1.2; }
+  .box img { width: 13mm; display: block; margin: 0 auto 1mm; }
+  .arrow { font-size: 9pt; color: #6e6e73; text-align: center; width: 18mm; }
+  .arrow::before { content: "→"; display: block; font-size: 16pt; color: #1d1d1f; }
+  .two { display: flex; gap: 6mm; }
+  .two > div { flex: 1; }
+</style>
+</head>
+<body>
+
+<!-- 表紙 -->
+<section class="page cover">
+  <img src="img/icon.png" alt="">
+  <div class="title">RawLab</div>
+  <div class="sub">RAW 現像アプリ マニュアル</div>
+  <div class="ver">バージョン 0.3.0 ・ macOS 27 以降 / Apple シリコン</div>
+</section>
+
+<!-- 1. インストール -->
+<section class="page">
+  <h1>1. インストール</h1>
+
+  <h2>動作環境</h2>
+  <ul>
+    <li>Apple シリコン(M1 以降)の Mac</li>
+    <li>macOS 27 以降</li>
+  </ul>
+
+  <h2>インストールのしかた</h2>
+  <div class="flow">
+    <div class="box"><div class="icon">🗜</div>RawLab-0.3.0.zip</div>
+    <div class="arrow">ダブルクリック<br>で展開</div>
+    <div class="box"><div class="icon">📁</div>RawLab-0.3.0<br>フォルダ</div>
+    <div class="arrow">中の<br>RawLab を</div>
+    <div class="box"><img src="img/icon.png" alt="">RawLab.app</div>
+    <div class="arrow">ドラッグ</div>
+    <div class="box"><div class="icon">🗂</div>アプリケーション<br>フォルダ</div>
+  </div>
+  <ol>
+    <li>受け取った <b>RawLab-0.3.0.zip</b> をダブルクリックして展開します。</li>
+    <li>できた <b>RawLab-0.3.0</b> フォルダの中の <b>RawLab</b>(レンズのアイコン)を、Finder の「アプリケーション」フォルダへドラッグします。</li>
+    <li>「アプリケーション」フォルダの RawLab をダブルクリックして起動します。</li>
+  </ol>
+  <div class="note">RawLab は Apple の公証(ノータリゼーション)を受けているので、警告なしでそのまま開けます。
+  もし「開けません」と表示されたら、zip を展開し直してからもう一度試してください(12 章「困ったとき」)。</div>
+
+  <h2>新しい版に入れ替える(アップデート)</h2>
+  <p>新しい版の RawLab.app を「アプリケーション」フォルダへドラッグし、「置き換える」を選びます。
+  <b>現像の設定や書き出し履歴はそのまま引き継がれます</b>(アプリとは別の場所に保存されているため)。</p>
+
+  <h2>削除する(アンインストール)</h2>
+  <ol>
+    <li>「アプリケーション」フォルダの RawLab.app をゴミ箱に入れます。</li>
+    <li>現像の設定も消す場合は、<b>ピクチャ › RawLab Library</b> フォルダもゴミ箱に入れます。</li>
+    <li>書き出した写真(<b>ピクチャ › RawLab Export</b>)は、必要なければ削除してください。</li>
+  </ol>
+  <div class="tip"><b>RAW ファイルは消えません。</b> RawLab は登録したフォルダの RAW を読むだけで、移動・変更・削除はしません。</div>
+</section>
+
+<!-- 2. 画面の見かた -->
+<section class="page">
+  <h1>2. 画面の見かた</h1>
+  <div class="annot">
+    <img src="img/main.jpg" alt="RawLab のメイン画面">
+    <div class="pin" style="left:6.6%; top:36%">1</div>
+    <div class="pin" style="left:46%; top:40%">2</div>
+    <div class="pin" style="left:15%; top:81.2%">3</div>
+    <div class="pin" style="left:46%; top:89%">4</div>
+    <div class="pin" style="left:89%; top:46%">5</div>
+    <div class="pin" style="left:73.5%; top:2.6%">6</div>
+  </div>
+  <table>
+    <tr><th style="width:30%">場所</th><th>役割</th></tr>
+    <tr><td><span class="num">1</span>写真の一覧</td><td>登録したフォルダの RAW が並びます。小さな印: <b>□2</b> はバージョンが 2 つ、<b>✓</b> は書き出し済み、<b>⟳</b> は書き出した後に変更あり(要再書き出し)、<b>⚠︎</b> は RAW が見つからない。左上のボタンでフォルダの列を表示できます。</td></tr>
+    <tr><td><span class="num">2</span>大きな画面</td><td>現像中の写真です。サムネイルにマウスを乗せると、その値を一時的にここで確認できます。</td></tr>
+    <tr><td><span class="num">3</span>調整のタブ</td><td>露出・ホワイトバランス・色ごとの調整など、調整する項目を選びます。</td></tr>
+    <tr><td><span class="num">4</span>段階のサムネイル</td><td>選んだ項目を段階的に変えた見本です。クリックで決めます(4 章)。</td></tr>
+    <tr><td><span class="num">5</span>右の欄</td><td>レベル(ヒストグラム)、現像バージョン、デコード設定、撮影情報、書き出し(10 章)。</td></tr>
+    <tr><td><span class="num">6</span>ツールバー</td><td>補正前 / 補正後 / 左右で比較、虫眼鏡、書き出し、右の欄の表示切り替え。</td></tr>
+  </table>
+</section>
+
+<!-- 3. 基本の流れ -->
+<section class="page">
+  <h1>3. 基本の流れ</h1>
+  <h2>① フォルダを登録する</h2>
+  <p>フォルダの列の左下にある <b>「＋ フォルダを追加」</b>(またはメニュー「ファイル › フォルダをライブラリに追加…」<kbd>⌘</kbd><kbd>O</kbd>)で、
+  RAW が入っているフォルダを選びます。サブフォルダの中の RAW もまとめて登録されます。</p>
+  <ul>
+    <li>RAW は <b>移動もコピーもしません</b>。元の場所のまま読み込みます。</li>
+    <li>あとからフォルダに写真を足したら、左下の <b>⟳(再スキャン)</b> を押します(<kbd>⌘</kbd><kbd>R</kbd>)。</li>
+    <li>フォルダ名を変えたり別の場所へ移したりしても、移動先を登録して再スキャンすれば、現像の設定を引き継ぎます。</li>
+  </ul>
+
+  <h2>② 写真を選ぶ</h2>
+  <p>一覧から写真を選ぶと、大きな画面に表示されます。キーボードの <kbd>↑</kbd><kbd>↓</kbd> でも切り替えられます。</p>
+
+  <h2>③ 調整する</h2>
+  <p>下のタブで項目を選び、サムネイルをクリックして決めます(次のページ)。調整は自動で保存されます。保存ボタンはありません。</p>
+
+  <h2>④ 書き出す</h2>
+  <p>ツールバーの <b>書き出しボタン(↑の付いた四角)</b>、または <kbd>⌘</kbd><kbd>E</kbd> で、JPEG などに書き出します。保存先は自動で決まります。</p>
+  <table>
+    <tr><th style="width:28%">項目</th><th>内容</th></tr>
+    <tr><td>書き出し先</td><td>ピクチャ › RawLab Export › 撮影年 › 撮影日 の中(右の欄の「書き出し先」で変更できます)</td></tr>
+    <tr><td>ファイル名</td><td>撮影日時_元のファイル名.jpg(2 つ目以降のバージョンはバージョン名が付きます)</td></tr>
+    <tr><td>形式</td><td>JPEG / TIFF(16bit)/ HEIC(右の欄の「形式」で選びます)</td></tr>
+  </table>
+  <div class="tip"><b>書き出した後に調整を変えると</b>、一覧の写真に <b>⟳</b> が付き、右の欄に「前回の書き出し後に変更あり」と出ます。もう一度書き出すと最新の状態になります。</div>
+</section>
+
+<!-- 4. 調整のしかた -->
+<section class="page">
+  <h1>4. 調整のしかた(段階サムネイル)</h1>
+  <figure>
+    <img src="img/main_panel.jpg" alt="露出のタブ">
+    <figcaption>露出のタブ。真ん中の青い枠が今の値。左ほど暗く、右ほど明るい見本が並びます。</figcaption>
+  </figure>
+  <ol>
+    <li><b>粗く選ぶ</b> — 最初は広い範囲を大きな刻みで並べています(露出なら -2.5〜+2.5 EV を 0.5 刻み)。</li>
+    <li><b>クリックすると細かい段階に</b> — 選んだ値を真ん中にして、細かい刻み(露出なら 0.1 EV)に並べ直します。さらにクリックすると、そこが新しい真ん中になります。</li>
+    <li><b>微調整</b> — 下の <b>−</b> / <b>＋</b>、またはキーボードの <kbd>←</kbd> <kbd>→</kbd> で 1 刻みずつ動かせます。</li>
+    <li><b>やり直す</b> — 「粗く選び直す」で粗い段階に戻ります。「0 に戻す」でその項目だけ元に戻ります。</li>
+  </ol>
+  <div class="tip"><b>マウスを乗せて確認</b> — サムネイルにマウスを乗せている間は、大きな画面がその値になります。サムネイルが小さくても、大画面で違いを確かめられます。</div>
+
+  <h2>タブの一覧</h2>
+  <table>
+    <tr><th style="width:24%">タブ</th><th>内容</th></tr>
+    <tr><td>露出</td><td>全体の明るさ</td></tr>
+    <tr><td>ホワイトバランス</td><td>色温度(横)× 色かぶり(縦)のマス目。スポイトつき(5 章)</td></tr>
+    <tr><td>色ごとの露出</td><td>R・G・B それぞれの明るさ(6 章)</td></tr>
+    <tr><td>色ごとの調整</td><td>8 つの色の系統ごとに 色相・彩度・明度(6 章)</td></tr>
+    <tr><td>コントラスト</td><td>明暗の差</td></tr>
+    <tr><td>ハイライト</td><td>明るい部分を抑えて階調を戻す</td></tr>
+    <tr><td>ハイライト圧縮</td><td>白より明るい部分を丸めて収める(白飛びの復元と組み合わせる。9 章)</td></tr>
+    <tr><td>シャドウ</td><td>暗い部分を持ち上げる / 沈める</td></tr>
+    <tr><td>レベル・カーブ</td><td>レベル補正とトーンカーブを 1 つのグラフで(7 章)</td></tr>
+    <tr><td>自然な彩度・彩度</td><td>鮮やかさ(自然な彩度は、もともと鮮やかな色や肌を上げすぎない)</td></tr>
+    <tr><td>ノイズ低減・シャープ</td><td>等倍の切り出しで比べます。大画面をクリックすると、見る場所(黄色い枠)が移動します</td></tr>
+    <tr><td>デコーダー</td><td>RAW を読み込む 4 種類のデコーダーの結果を並べて比べ、切り替えます(8 章)</td></tr>
+  </table>
+</section>
+
+<!-- 5. ホワイトバランス -->
+<section class="page">
+  <h1>5. ホワイトバランス</h1>
+  <figure>
+    <img src="img/wb_panel.jpg" alt="ホワイトバランスのタブ">
+    <figcaption>横に色温度(左ほど青く、右ほど黄色く)、縦に色かぶり(上ほどマゼンタ、下ほど緑)。</figcaption>
+  </figure>
+  <ul>
+    <li>マス目をクリックすると、色温度と色かぶりが同時に決まり、細かい段階(100K / 4 刻み)に変わります。</li>
+    <li>微調整: <kbd>←</kbd> <kbd>→</kbd> で色温度、<kbd>↑</kbd> <kbd>↓</kbd> で色かぶり。</li>
+  </ul>
+  <h2>スポイト</h2>
+  <ol>
+    <li>下の <b>「スポイト」</b> を押します(青く「スポイト中」になります)。</li>
+    <li>大きな画面で、<b>本来は白や灰色の所</b>(白い壁、灰色の道路、雲など)をクリックします。</li>
+    <li>そこが無彩色になるように、色温度と色かぶりが自動で決まります。<kbd>esc</kbd> で中止できます。</li>
+  </ol>
+  <div class="note">真っ黒な所や白飛びした所では計算できません。少し暗めの白や灰色をクリックするのがコツです。</div>
+  <p>右の欄の「撮影時の WB を使う」をオフにすると、カメラが記録した WB ではなく昼光の WB を基準にします。</p>
+</section>
+
+<!-- 6. 色ごとの露出・色ごとの調整 -->
+<section class="page">
+  <h1>6. 色ごとの露出・色ごとの調整</h1>
+  <h2>色ごとの露出</h2>
+  <p>R・G・B の 3 段のサムネイルで、それぞれの色の明るさ(EV)を独立に変えます。
+  ホワイトバランスでは合わせきれない微妙な色のずれを直すときに使います。
+  右の欄の <b>RGB / R / G / B</b> で 1 色ずつ表示すると、色ごとの白飛びを確かめながら調整できます。</p>
+
+  <h2>色ごとの調整</h2>
+  <figure>
+    <img src="img/hsl_panel.jpg" alt="色ごとの調整のタブ">
+    <figcaption>上で色の系統を選び、下の 3 段で 色相・彩度・明度 を選びます。</figcaption>
+  </figure>
+  <table>
+    <tr><th style="width:18%">調整</th><th style="width:22%">範囲</th><th>効き方</th></tr>
+    <tr><td>色相</td><td>-30°〜+30°</td><td>その系統の色を、隣の色の方へずらします(例: 黄を緑寄りに)</td></tr>
+    <tr><td>彩度</td><td>-1 〜 +1</td><td>その系統の色だけ鮮やかさを変えます(-1 で灰色)</td></tr>
+    <tr><td>明度</td><td>-1 〜 +1</td><td>その系統の色だけ明るく / 暗くします</td></tr>
+  </table>
+  <div class="tip"><b>大きな画面をクリックすると、その場所の色の系統が選ばれます。</b>
+  空をクリックすれば「青」、レンガをクリックすれば「オレンジ」のように、どの系統を触ればよいか迷いません。</div>
+  <ul>
+    <li>調整した系統のボタンには青い点が付きます。</li>
+    <li>「この色を 0 に」で選んでいる系統だけ、「全色を 0 に」ですべて元に戻ります。</li>
+    <li>白・灰色・黒にはほとんど効かないので、青空を濃くしても白い雲はそのままです。</li>
+  </ul>
+  <h3>使い方の例</h3>
+  <ul>
+    <li>青空を深く: 青の 彩度 +0.4 〜 +0.6、明度 -0.3</li>
+    <li>芝生を落ち着いた緑に: 黄の 色相 +6〜+12°、彩度 -0.2</li>
+    <li>肌を明るく: オレンジの 明度 +0.2、彩度 -0.1</li>
+  </ul>
+</section>
+
+<!-- 7. レベル・カーブ -->
+<section class="page">
+  <h1>7. レベル補正とトーンカーブ</h1>
+  <figure>
+    <img src="img/tone_panel.jpg" alt="レベル・カーブのタブ">
+    <figcaption>1 つのグラフで両方を調整します。グラフの中がトーンカーブ、グラフのすぐ下の三角がレベル補正。</figcaption>
+  </figure>
+  <p>グラフの横軸は写真の明るさ(左が暗い、右が明るい)、背景の灰色の山はヒストグラム(明るさの分布)です。</p>
+  <h2>レベル補正(グラフの下の三角)</h2>
+  <ul>
+    <li>3 つの三角を左右にドラッグします。<b>黒</b>(左)より暗い所は真っ黒に、<b>白</b>(右)より明るい所は真っ白になります。
+      その範囲はグラフの上でも暗く表示されます。<b>中間</b>(真ん中)で中間調の明るさを変えます。</li>
+    <li>下の「自動」で、明るさの分布の両端 0.1% を切って黒と白の位置を決めます。数値は下の列(黒・中間・白)に出ます。</li>
+  </ul>
+  <h2>トーンカーブ(グラフの中)</h2>
+  <ul>
+    <li>点をドラッグして形を変えます。<b>何もない所をクリック</b>すると点が増え、<b>点をダブルクリック</b>すると消えます。</li>
+    <li>「よく使う形」: 直線・弱い S 字・強い S 字(メリハリ)、明るく・暗く、黒を締める。</li>
+  </ul>
+  <div class="tip"><b>先にレベル補正で範囲を決め、次にトーンカーブで形を整える</b>のが基本の順番です(処理もこの順にかかります)。
+  「レベルをリセット」「カーブをリセット」で、それぞれだけを元に戻せます。</div>
+</section>
+
+<!-- 8. デコーダー -->
+<section class="page">
+  <h1>8. デコーダー(RAW の読み込み方)</h1>
+  <p>RawLab には、RAW を画像にする「デコーダー」が 4 種類あります。同じ RAW でも色や細部の出方が少しずつ違うので、
+  「デコーダー」タブで並べて見比べ、好きなものを選べます。マウスを乗せると大画面で確認できます。</p>
+  <table>
+    <tr><th style="width:22%">デコーダー</th><th>特徴</th></tr>
+    <tr><td>RawLab エンジン</td><td>RawLab 独自の現像処理。<b>白飛びの復元</b>(9 章)に対応。デモザイクは高画質な方式(LINEAR を選ぶと簡易な方式)。Fujifilm の X-Trans には未対応</td></tr>
+    <tr><td>LibRaw</td><td>定番のオープンソース。デモザイクの方式(AHD・DCB など)とデコーダーのノイズ低減を選べる。白飛びの復元(ブレンド方式)にも対応</td></tr>
+    <tr><td>Core Image</td><td>macOS に組み込みの RAW 現像。ノイズ低減つき</td></tr>
+    <tr><td>rawler</td><td>Rust 製のオープンソース。軽くて速い</td></tr>
+  </table>
+  <div class="note">選んだデコーダーで開けない RAW は、自動でほかのデコーダーに切り替えて表示します(大画面の左下にお知らせが出ます)。
+  デコーダータブでは、開けないものは「このデコーダーでは開けません」と表示されます。</div>
+
+  <h2>現像バージョン</h2>
+  <p>1 枚の RAW に、複数の現像(例: カラー版とモノクロ版)を持てます。右の欄「現像バージョン」で</p>
+  <ul>
+    <li><b>複製</b>: 今の設定をコピーして新しいバージョンを作る</li>
+    <li><b>新規</b>: 何も調整していないバージョンを作る</li>
+    <li><b>名前</b>: 名前の欄に入力して <kbd>return</kbd></li>
+  </ul>
+  <h2>補正前との比較・虫眼鏡</h2>
+  <ul>
+    <li>ツールバーの <b>補正前 / 補正後 / 左右で比較</b>。左右で比較では、境目をドラッグして動かせます。</li>
+    <li>ツールバーの <b>虫眼鏡(🔍)</b> をオンにすると、大画面のマウス位置の周りを等倍(100%)で拡大します。</li>
+  </ul>
+</section>
+
+<!-- 9. 白飛びを救う -->
+<section class="page">
+  <h1>9. 白飛びを救う</h1>
+  <p>空や白い壁が真っ白に飛んでしまった写真でも、RAW にはまだ情報が残っていることがあります。RawLab では次の組み合わせで救えます。</p>
+  <ol>
+    <li>右の欄「デコード設定」で、デコーダーを <b>RawLab エンジン</b> にします。</li>
+    <li>「白飛び」を <b>色を補って復元</b> にします。<br>
+      センサーでは R・G・B のうち 1 色だけが先に飽和することが多いので、飽和していない色と周りの色合いから、飽和した色を推定して補います。白より明るい階調も残ります。</li>
+    <li>下のタブ <b>ハイライト圧縮</b> で、0.5〜1.0 を選びます。<br>
+      白より明るい部分を丸めて収めるので、露出を下げなくても雲などの階調が見えてきます。</li>
+  </ol>
+  <h2>白飛びを確認する</h2>
+  <ul>
+    <li>右の欄「レベル」の右上の三角が赤く点灯していれば白飛び、左上が青なら黒つぶれがあります。下に割合も出ます。</li>
+    <li>「大画面に表示」にチェックを入れると、白飛びした所が<b>赤</b>、黒つぶれした所が<b>青</b>で塗られます。</li>
+    <li><b>RGB / R / G / B</b> で 1 色を選ぶと、大画面がその色だけの白黒になり、白飛びの判定もその色だけになります。</li>
+  </ul>
+  <div class="note">3 色とも完全に飽和した所は元の色がわからないため、白として扱います。</div>
+</section>
+
+<!-- 10. 右の欄 -->
+<section class="page">
+  <h1>10. 右の欄</h1>
+  <div class="two">
+    <div style="flex:0 0 58mm"><img src="img/inspector.jpg" style="width:100%; border:1px solid #d2d2d7; border-radius:6px"></div>
+    <div>
+      <h3>レベル</h3>
+      <p>ヒストグラム(明るさの分布)。RGB / R / G / B の切り替え、黒つぶれ・白飛びの割合、「大画面に表示」。</p>
+      <h3>現像バージョン</h3>
+      <p>バージョンの切り替え・複製・新規・名前・削除(8 章)。</p>
+      <h3>デコード設定</h3>
+      <p><b>デコーダー</b>(デコーダータブで切り替え)、<b>デモザイク</b>(LibRaw と RawLab エンジン)、<b>デコーダー NR</b>(LibRaw と Core Image のノイズ低減)、
+      <b>撮影時の WB を使う</b>、<b>白飛び</b>(切り捨て / 色を補って復元)。</p>
+      <h3>情報</h3>
+      <p>カメラ、レンズ、露出、焦点距離、撮影日時、ニコンのピクチャーコントロールなど。「RAW」のリンクで Finder に表示します。</p>
+      <h3>書き出し</h3>
+      <p>書き出し先(クリックで変更)、形式、前回の書き出し(クリックで Finder に表示)、書き出し / 再書き出し。</p>
+    </div>
+  </div>
+</section>
+
+<!-- 11. ファイルの置き場所・対応 RAW -->
+<section class="page">
+  <h1>11. ファイルの置き場所と対応 RAW</h1>
+  <h2>ファイルの置き場所</h2>
+  <table>
+    <tr><th style="width:30%">もの</th><th>場所</th></tr>
+    <tr><td>RAW</td><td>登録したフォルダのまま(RawLab は書き込みません)</td></tr>
+    <tr><td>現像の設定・書き出し履歴</td><td>ピクチャ › RawLab Library</td></tr>
+    <tr><td>書き出した写真</td><td>ピクチャ › RawLab Export › 撮影年 › 撮影日(変更可)</td></tr>
+  </table>
+  <div class="tip"><b>バックアップ</b>は「RawLab Library」フォルダをコピーするだけです。写真はインターネットに送られることはなく、すべてこの Mac の中で処理されます。</div>
+
+  <h2>対応している RAW</h2>
+  <table>
+    <tr><th style="width:36%">メーカー</th><th>拡張子</th></tr>
+    <tr><td>Nikon</td><td>NEF / NRW</td></tr>
+    <tr><td>Canon</td><td>CR3 / CR2 / CRW</td></tr>
+    <tr><td>Sony</td><td>ARW / SRF / SR2</td></tr>
+    <tr><td>OM System / Olympus</td><td>ORF</td></tr>
+    <tr><td>Fujifilm</td><td>RAF(RawLab エンジンは X-Trans 未対応。ほかのデコーダーで開きます)</td></tr>
+    <tr><td>Panasonic / Leica</td><td>RW2 / RAW / RWL</td></tr>
+    <tr><td>Pentax / Ricoh</td><td>PEF / PTX</td></tr>
+    <tr><td>Samsung</td><td>SRW</td></tr>
+    <tr><td>Hasselblad / Phase One / Sigma ほか</td><td>3FR / FFF / IIQ / MOS / MEF / X3F / MRW / DCR / KDC / ERF</td></tr>
+    <tr><td>DNG(Leica・Pentax・スマートフォンなど)</td><td>DNG</td></tr>
+  </table>
+</section>
+
+<!-- 12. 困ったとき -->
+<section class="page">
+  <h1>12. 困ったとき</h1>
+  <h3>「開けません」「壊れている」と表示されて起動できない</h3>
+  <p>zip をもう一度ダブルクリックして展開し直し、新しくできた RawLab.app を使ってください。
+  それでも開けない場合は、Finder で RawLab.app を右クリック ›「開く」を選びます。</p>
+
+  <h3>写真に ⚠︎ が付いて「RAW が見つかりません」と出る</h3>
+  <p>RAW のフォルダを移動・改名したか、外付けディスクが外れています。ディスクをつなぐか、移動先のフォルダを「＋ フォルダを追加」で登録して、⟳(再スキャン)を押してください。
+  同じファイルだと自動で判断して、現像の設定を引き継ぎます。</p>
+
+  <h3>新しく撮った写真が一覧に出てこない</h3>
+  <p>フォルダの列の左下の ⟳(再スキャン)を押してください(<kbd>⌘</kbd><kbd>R</kbd>)。</p>
+
+  <h3>調整を全部やり直したい</h3>
+  <p>下のパネルの右下の「すべての補正をリセット」を押します。元に戻したい状態を残したいときは、先に「現像バージョン」の「複製」で控えを作っておくと安心です。</p>
+
+  <h3>色が不自然 / 空にシミのような色が出る</h3>
+  <p>「白飛び」を「色を補って復元」にしているときに、強い色収差などで起きることがあります。「切り捨て(白)」に戻すか、別のデコーダーで見比べてください。</p>
+
+  <h3>表示が遅い</h3>
+  <p>最初に写真を開くときと、ノイズ低減・シャープのタブ(等倍の切り出し)、虫眼鏡は、フル解像度の読み込みに数秒かかることがあります。</p>
+
+  <h2>ライセンス</h2>
+  <p>RawLab は LibRaw・rawler などのオープンソースソフトウェアを使っています。一覧と全文は、RawLab.app を右クリック ›「パッケージの内容を表示」›
+  Contents › Resources › Licenses にあります。</p>
+</section>
+
+</body>
+</html>

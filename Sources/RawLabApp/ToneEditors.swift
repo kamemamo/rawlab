@@ -19,48 +19,32 @@ private func drawHistogram(_ h: Histogram?, in ctx: GraphicsContext, size: CGSiz
 
 // MARK: - レベル補正
 
-/// ヒストグラムの下の 3 つの三角(黒・グレー・白)をドラッグして調整
-struct LevelsEditor: View {
+/// レベル補正の 3 つの三角(黒・中間・白)。トーンカーブのグラフの横軸(入力の明るさ)の真下に置く
+struct LevelsTrack: View {
     @Bindable var model: AppModel
+    let width: CGFloat
 
     var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let s = model.settings
-            let grayX = s.levelsBlack + (s.levelsWhite - s.levelsBlack) * pow(0.5, s.levelsGamma)
-            VStack(spacing: 2) {
-                Canvas { ctx, size in
-                    ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(white: 0.1)))
-                    drawHistogram(model.toneHistogram, in: ctx, size: size)
-                    // 範囲外を暗く
-                    ctx.fill(Path(CGRect(x: 0, y: 0, width: size.width * s.levelsBlack, height: size.height)),
-                             with: .color(.black.opacity(0.45)))
-                    ctx.fill(Path(CGRect(x: size.width * s.levelsWhite, y: 0,
-                                         width: size.width * (1 - s.levelsWhite), height: size.height)),
-                             with: .color(.black.opacity(0.45)))
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 3))
-
-                // 入力の濃淡の帯と三角
-                ZStack(alignment: .topLeading) {
-                    LinearGradient(colors: [.black, .white], startPoint: .leading, endPoint: .trailing)
-                        .frame(height: 5)
-                    handle(x: s.levelsBlack * w, fill: .black) { x in
-                        model.settings.levelsBlack = min(max(x / w, 0), model.settings.levelsWhite - 0.02)
-                    }
-                    handle(x: grayX * w, fill: Color(white: 0.5)) { x in
-                        let b = model.settings.levelsBlack, wh = model.settings.levelsWhite
-                        let t = min(max((x / w - b) / max(wh - b, 0.001), 0.02), 0.98)
-                        model.settings.levelsGamma = log(t) / log(0.5)
-                    }
-                    handle(x: s.levelsWhite * w, fill: .white) { x in
-                        model.settings.levelsWhite = max(min(x / w, 1), model.settings.levelsBlack + 0.02)
-                    }
-                }
-                .frame(height: 22)
-                .coordinateSpace(name: "levels")
+        let w = width
+        let s = model.settings
+        let grayX = s.levelsBlack + (s.levelsWhite - s.levelsBlack) * pow(0.5, s.levelsGamma)
+        ZStack(alignment: .topLeading) {
+            LinearGradient(colors: [.black, .white], startPoint: .leading, endPoint: .trailing)
+                .frame(width: w, height: 5)
+            handle(x: s.levelsBlack * w, fill: .black) { x in
+                model.settings.levelsBlack = min(max(x / w, 0), model.settings.levelsWhite - 0.02)
+            }
+            handle(x: grayX * w, fill: Color(white: 0.5)) { x in
+                let b = model.settings.levelsBlack, wh = model.settings.levelsWhite
+                let t = min(max((x / w - b) / max(wh - b, 0.001), 0.02), 0.98)
+                model.settings.levelsGamma = log(t) / log(0.5)
+            }
+            handle(x: s.levelsWhite * w, fill: .white) { x in
+                model.settings.levelsWhite = max(min(x / w, 1), model.settings.levelsBlack + 0.02)
             }
         }
+        .frame(width: w, height: 22)
+        .coordinateSpace(name: "levels")
     }
 
     private func handle(x: CGFloat, fill: Color, onDrag: @escaping (CGFloat) -> Void) -> some View {
@@ -87,26 +71,38 @@ private struct Triangle: Shape {
     }
 }
 
-// MARK: - トーンカーブ
+// MARK: - レベル補正 + トーンカーブ
 
-/// 点をドラッグして調整。何もない所をクリックすると点を追加、点をダブルクリックで削除
+/// レベル補正とトーンカーブを 1 つのグラフで。
+/// 横軸(入力の明るさ)の真下にレベル補正の三角、グラフの中でカーブの点をドラッグ。
+/// 何もない所をクリックすると点を追加、点をダブルクリックで削除
 struct CurveEditor: View {
     @Bindable var model: AppModel
     static let presetsWidth: CGFloat = 220
-
-    /// カーブの正方形 + よく使う形の列の幅
-    static func width(height: CGFloat) -> CGFloat { height + 12 + presetsWidth }
+    /// グラフの下のレベル補正の帯の高さ
+    static let trackHeight: CGFloat = 24
     @State private var dragIndex: Int?
 
     private var points: [CurvePoint] { ToneCurve.normalized(model.settings.curve) }
 
     var body: some View {
         GeometryReader { geo in
-            let side = geo.size.height
-            HStack(alignment: .top, spacing: 12) {
+            // 高さはパネルに合わせ、幅は余った分だけ横に広げる(最大で高さの 2.2 倍)
+            let side = CGSize(width: min(max(geo.size.width - Self.presetsWidth - 16, 120),
+                                         (geo.size.height - Self.trackHeight) * 2.2),
+                              height: geo.size.height - Self.trackHeight)
+            HStack(alignment: .top, spacing: 16) {
+              VStack(spacing: 2) {
                 Canvas { ctx, size in
                     ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(white: 0.1)))
                     drawHistogram(model.toneHistogram, in: ctx, size: size)
+                    // レベル補正で真っ黒・真っ白になる範囲を暗く
+                    let lv = model.settings
+                    ctx.fill(Path(CGRect(x: 0, y: 0, width: size.width * lv.levelsBlack, height: size.height)),
+                             with: .color(.black.opacity(0.45)))
+                    ctx.fill(Path(CGRect(x: size.width * lv.levelsWhite, y: 0,
+                                         width: size.width * (1 - lv.levelsWhite), height: size.height)),
+                             with: .color(.black.opacity(0.45)))
                     for i in 1..<4 {
                         let v = CGFloat(i) / 4
                         var grid = Path()
@@ -137,11 +133,13 @@ struct CurveEditor: View {
                                  with: .color(i == dragIndex ? Color.accentColor : .white))
                     }
                 }
-                .frame(width: side, height: side)
+                .frame(width: side.width, height: side.height)
                 .clipShape(RoundedRectangle(cornerRadius: 3))
                 .contentShape(Rectangle())
                 .gesture(drag(side: side))
                 .simultaneousGesture(SpatialTapGesture(count: 2).onEnded { removePoint(near: $0.location, side: side) })
+                LevelsTrack(model: model, width: side.width)
+              }
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("よく使う形").font(.caption).foregroundStyle(.white.opacity(0.6))
@@ -159,7 +157,9 @@ struct CurveEditor: View {
                         Text(String(format: "入力 %d → 出力 %d", Int(points[i].x * 255), Int(points[i].y * 255)))
                             .font(.caption.monospacedDigit())
                     }
-                    Text("何もない所をクリックで点を追加、点をダブルクリックで削除")
+                    Text("グラフ: 何もない所をクリックで点を追加、点をダブルクリックで削除")
+                        .font(.caption).foregroundStyle(.white.opacity(0.5))
+                    Text("下の三角: レベル補正(左から 黒・中間・白)")
                         .font(.caption).foregroundStyle(.white.opacity(0.5))
                 }
                 .frame(width: Self.presetsWidth, alignment: .leading)
@@ -173,12 +173,12 @@ struct CurveEditor: View {
         Button(title) { model.setCurve(pts) }
     }
 
-    private func drag(side: CGFloat) -> some Gesture {
+    private func drag(side: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { v in
                 var pts = points
-                let x = min(max(v.location.x / side, 0), 1)
-                let y = min(max(1 - v.location.y / side, 0), 1)
+                let x = min(max(v.location.x / side.width, 0), 1)
+                let y = min(max(1 - v.location.y / side.height, 0), 1)
                 if dragIndex == nil {
                     // 近くの点をつかむ。なければ新しい点を足す
                     let start = v.startLocation
@@ -205,7 +205,7 @@ struct CurveEditor: View {
             .onEnded { _ in dragIndex = nil }
     }
 
-    private func removePoint(near location: CGPoint, side: CGFloat) {
+    private func removePoint(near location: CGPoint, side: CGSize) {
         var pts = points
         guard let i = pts.indices.dropFirst().dropLast().min(by: {
             distance(pts[$0], location, side) < distance(pts[$1], location, side)
@@ -214,7 +214,7 @@ struct CurveEditor: View {
         model.setCurve(pts)
     }
 
-    private func distance(_ p: CurvePoint, _ loc: CGPoint, _ side: CGFloat) -> CGFloat {
-        hypot(p.x * side - loc.x, (1 - p.y) * side - loc.y)
+    private func distance(_ p: CurvePoint, _ loc: CGPoint, _ side: CGSize) -> CGFloat {
+        hypot(p.x * side.width - loc.x, (1 - p.y) * side.height - loc.y)
     }
 }

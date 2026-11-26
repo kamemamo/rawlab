@@ -26,20 +26,15 @@ struct AdjustPanel: View {
                 } else if model.rowParams != nil {
                     channelRows
                 } else if model.selectedTab == .tone {
-                    // タブ名・下のボタンと同じ順に、左にレベル補正、右にトーンカーブ
-                    HStack(alignment: .top, spacing: 14) {
-                        LevelsEditor(model: model)
-                        Divider()
-                        CurveEditor(model: model)
-                            .frame(width: CurveEditor.width(height: 190))
-                    }
+                    // レベル補正とトーンカーブを 1 つのグラフで(三角はグラフの横軸の真下)
+                    CurveEditor(model: model)
                 } else {
                     variationStrip
                 }
             }
             .frame(height: model.selectedTab == .hsl ? 236
                    : model.selectedTab.grid != nil || model.rowParams != nil ? 200
-                   : model.selectedTab.isToneEditor ? 190 : 132)
+                   : model.selectedTab.isToneEditor ? 250 : 132)
             .padding(.horizontal, 10)
             .padding(.top, 8)
             controls
