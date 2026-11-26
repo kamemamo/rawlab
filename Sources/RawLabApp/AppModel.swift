@@ -27,7 +27,8 @@ struct DecoderVariation: Identifiable {
     let decoderID: String
     let name: String
     let time: TimeInterval
-    let image: CGImage
+    /// nil ならこのデコーダーでは開けない
+    let image: CGImage?
 }
 
 /// デコード結果をプレビュー用(長辺 2400)とサムネイル用(長辺 400)のビットマップに確定したもの
@@ -177,6 +178,8 @@ final class AppModel {
     private var base: DecodedBase?
     /// デコーダーごとのプレビュー(デコーダータブ用・切り替えを速くする)。写真とデコード設定が変わったら捨てる
     private var decoderBases: [String: DecodedBase] = [:]
+    /// デコーダータブで「開けない」とわかったデコーダー(decoderBases と同じタイミングで捨てる)
+    private var decoderFailures: Set<String> = []
     private var decoderBasesKey = ""
     /// 等倍切り出し用のフル解像度画像
     private var fullImage: ImageBox?
@@ -565,6 +568,7 @@ final class AppModel {
         }
         if decoderBasesKey != optionsKey {
             decoderBases = [:]
+            decoderFailures = []
             decoderBasesKey = optionsKey
         }
         // デコーダータブで一度読んだものは使い回す
@@ -589,7 +593,8 @@ final class AppModel {
             isDecoding = false
             switch result {
             case .success(let b):
-                decoderBases[id] = b
+                // 代わりのデコーダーで開いた結果は、そのデコーダーの分としてだけ覚える
+                decoderBases[b.decoderID] = b
                 setBase(b)
             case .failure(let error):
                 status = error.localizedDescription
@@ -607,11 +612,19 @@ final class AppModel {
         refreshVariations()
     }
 
-    nonisolated private static func makeBase(url: URL, decoderID: String, options: DecodeOptions) throws -> DecodedBase {
+    /// fallback が false なら、指定したデコーダーだけで開く(デコーダータブの比較用)
+    nonisolated private static func makeBase(url: URL, decoderID: String, options: DecodeOptions,
+                                             fallback: Bool = true) throws -> DecodedBase {
         let start = Date()
         var o = options
         o.halfSize = true  // プレビューは半分サイズで十分
-        let decoded = try DecoderRegistry.decode(url, preferred: decoderID, options: o)
+        let decoded: DecodedImage
+        if fallback {
+            decoded = try DecoderRegistry.decode(url, preferred: decoderID, options: o)
+        } else {
+            guard let decoder = DecoderRegistry.decoder(id: decoderID) else { throw DecoderError.unsupported(url) }
+            decoded = try decoder.decode(url, options: o)
+        }
         guard let big = DevelopPipeline.materialize(decoded.image, maxPixel: 2400),
               let small = DevelopPipeline.materialize(big, maxPixel: 400)
         else { throw DecoderError.failed("プレビュー作成に失敗") }
@@ -916,7 +929,7 @@ final class AppModel {
     /// 全デコーダーで読んで並べる(読んだものは切り替え用にも使い回す)
     private func loadDecoderVariations() {
         guard let photo = selectedPhoto, !photo.isMissing else { return }
-        let missing = DecoderRegistry.all.map(\.id).filter { decoderBases[$0] == nil }
+        let missing = DecoderRegistry.all.map(\.id).filter { decoderBases[$0] == nil && !decoderFailures.contains($0) }
         renderDecoderVariations()
         guard !missing.isEmpty else { return }
         decoderTask?.cancel()
@@ -927,10 +940,10 @@ final class AppModel {
         decoderTask = Task {
             for id in missing {
                 let b = await Task.detached(priority: .userInitiated) {
-                    try? Self.makeBase(url: url, decoderID: id, options: options)
+                    try? Self.makeBase(url: url, decoderID: id, options: options, fallback: false)
                 }.value
                 guard !Task.isCancelled, key == optionsKey else { return }
-                if let b { decoderBases[id] = b }
+                if let b { decoderBases[id] = b } else { decoderFailures.insert(id) }
                 renderDecoderVariations()
             }
             isLoadingVariations = false
@@ -939,16 +952,17 @@ final class AppModel {
 
     private func renderDecoderVariations() {
         variationTask?.cancel()
-        let items = DecoderRegistry.all.compactMap { d in
-            decoderBases[d.id].map { (d.id, d.displayName, $0) }
+        let items: [(String, String, DecodedBase?)] = DecoderRegistry.all.compactMap { d in
+            if let b = decoderBases[d.id] { return (d.id, d.displayName, b) }
+            if decoderFailures.contains(d.id) { return (d.id, d.displayName, nil) }
+            return nil
         }
         let settings = self.settings
         variationTask = Task {
             let result = await Task.detached(priority: .userInitiated) { () -> [DecoderVariation] in
-                items.compactMap { id, name, b in
-                    guard let cg = DevelopPipeline.renderCGImage(DevelopPipeline.apply(settings, to: b.small))
-                    else { return nil }
-                    return DecoderVariation(decoderID: id, name: name, time: b.time, image: cg)
+                items.map { id, name, b in
+                    let cg = b.flatMap { DevelopPipeline.renderCGImage(DevelopPipeline.apply(settings, to: $0.small)) }
+                    return DecoderVariation(decoderID: id, name: name, time: b?.time ?? 0, image: cg)
                 }
             }.value
             guard !Task.isCancelled else { return }

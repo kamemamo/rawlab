@@ -192,22 +192,34 @@ struct AdjustPanel: View {
         HStack(spacing: 0) {
             ForEach(model.decoderVariations) { d in
                 VStack(spacing: 3) {
-                    Image(decorative: d.image, scale: 1)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxHeight: .infinity)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 3)
-                                .stroke(d.decoderID == model.decoderID ? accent : .clear, lineWidth: 2)
-                        }
-                    Text("\(d.name)  ·  \(String(format: "%.2fs", d.time))")
+                    if let image = d.image {
+                        Image(decorative: image, scale: 1)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxHeight: .infinity)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 3)
+                                    .stroke(d.decoderID == model.decoderID ? accent : .clear, lineWidth: 2)
+                            }
+                    } else {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.white.opacity(0.06))
+                            .aspectRatio(1.5, contentMode: .fit)
+                            .frame(maxHeight: .infinity)
+                            .overlay {
+                                Text("このデコーダーでは\n開けません")
+                                    .font(.caption).multilineTextAlignment(.center)
+                                    .foregroundStyle(.white.opacity(0.5))
+                            }
+                    }
+                    Text(d.image == nil ? d.name : "\(d.name)  ·  \(String(format: "%.2fs", d.time))")
                         .font(.caption2.monospacedDigit())
-                        .foregroundStyle(d.decoderID == model.decoderID ? accent : .white.opacity(0.7))
+                        .foregroundStyle(d.decoderID == model.decoderID ? accent : .white.opacity(d.image == nil ? 0.4 : 0.7))
                 }
                 .padding(.horizontal, 4)
                 .contentShape(Rectangle())
-                .onTapGesture { model.pickDecoder(d.decoderID) }
-                .onHover { inside in model.hoverDecoder(d.decoderID, inside: inside) }
+                .onTapGesture { if d.image != nil { model.pickDecoder(d.decoderID) } }
+                .onHover { inside in if d.image != nil { model.hoverDecoder(d.decoderID, inside: inside) } }
             }
             if model.isLoadingVariations {
                 ProgressView().controlSize(.small).padding(.horizontal, 20)
