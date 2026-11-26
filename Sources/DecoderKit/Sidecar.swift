@@ -1,7 +1,7 @@
 import Foundation
 
-/// 「元ファイルは触らない」編集。RAW の隣に <名前>.NEF.rawlab.json として保存する。
-/// どのデコーダーで現像したかも残すので、同じ結果を再現できる。
+/// 旧方式の編集保存(RAW の隣の <名前>.NEF.rawlab.json)。
+/// 今はライブラリ(LibraryKit)に移行済みで、初回登録時の取り込みにだけ使う。
 public struct Sidecar: Codable, Sendable {
     public var version = 1
     public var decoderID: String

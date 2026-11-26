@@ -11,6 +11,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "DecoderKit", targets: ["DecoderKit"]),
+        .library(name: "LibraryKit", targets: ["LibraryKit"]),
         .executable(name: "rawlab", targets: ["rawlab"]),
         .executable(name: "RawLabApp", targets: ["RawLabApp"]),
     ],
@@ -24,8 +25,14 @@ let package = Package(
             dependencies: ["CLibRaw", "CRawler"],
             linkerSettings: [.unsafeFlags(["-L/opt/homebrew/opt/libraw/lib", "-L\(rawlerLib)"])]
         ),
-        .executableTarget(name: "rawlab", dependencies: ["DecoderKit"], path: "Sources/rawlab-cli"),
-        .executableTarget(name: "RawLabApp", dependencies: ["DecoderKit"]),
+        // RAW の場所・現像バージョン・書き出し履歴を SQLite で管理する
+        .target(
+            name: "LibraryKit",
+            dependencies: ["DecoderKit"],
+            linkerSettings: [.linkedLibrary("sqlite3")]
+        ),
+        .executableTarget(name: "rawlab", dependencies: ["DecoderKit", "LibraryKit"], path: "Sources/rawlab-cli"),
+        .executableTarget(name: "RawLabApp", dependencies: ["DecoderKit", "LibraryKit"]),
     ],
     swiftLanguageModes: [.v5]
 )

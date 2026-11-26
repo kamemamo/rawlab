@@ -1,6 +1,7 @@
 import CoreImage
 import DecoderKit
 import Foundation
+import LibraryKit
 
 let usage = """
 使い方:
@@ -8,6 +9,13 @@ let usage = """
   rawlab info <file.NEF>...
   rawlab develop <file.NEF>... [options]
   rawlab compare <file.NEF> [options] [--crop N]
+
+ライブラリ(~/Pictures/RawLab Library、環境変数 RAWLAB_LIBRARY で変更可):
+  rawlab library                    ライブラリの概要
+  rawlab library add <folder>...    RAW フォルダを登録してスキャン
+  rawlab library scan               全フォルダを再スキャン
+  rawlab library photos             写真・バージョン・書き出し状態の一覧
+  rawlab library export <file.NEF>... [--format f]  全バージョンを書き出し先へ
 
 options:
   --decoder <id>        coreimage | libraw(既定: libraw)
@@ -149,9 +157,60 @@ func compare(_ o: Options) throws {
     print("✓ 横並び比較 → \(dest.path)(左から \(DecoderRegistry.ids.joined(separator: " / ")))")
 }
 
+func library(_ args: ArraySlice<String>) throws {
+    let catalog = try Catalog()
+    let sub = args.first ?? ""
+    let rest = args.dropFirst()
+    switch sub {
+    case "":
+        print("ライブラリ : \(catalog.libraryURL.path)")
+        print("書き出し先 : \(catalog.exportRoot.path)")
+        for f in try catalog.folders() {
+            let count = try catalog.photos(folderID: f.id).count
+            print("  \(f.isAvailable ? "●" : "○") \(f.path)  (\(count) 枚)")
+        }
+    case "add":
+        for path in rest {
+            let folder = try catalog.addFolder(URL(fileURLWithPath: path))
+            print("✓ \(folder.path): \(try catalog.scan(folderID: folder.id).summary)")
+        }
+    case "scan":
+        print(try catalog.scanAll().summary)
+    case "photos":
+        let states = try catalog.exportStates()
+        for p in try catalog.photos() {
+            let state = switch states[p.id] {
+            case .needsReexport: "要再書き出し"
+            case .upToDate: "書き出し済み"
+            default: "未書き出し"
+            }
+            let versions = try catalog.versions(photoID: p.id).map(\.name).joined(separator: ", ")
+            print("\(p.isMissing ? "⚠︎ 見つからない " : "")\(p.path)\n    [\(versions)]  \(state)")
+        }
+    case "export":
+        let o = try parse(rest)
+        for url in o.files {
+            let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+            guard let photo = try catalog.photo(path: path) else {
+                print("✗ ライブラリに未登録: \(url.path)"); continue
+            }
+            for v in try catalog.versions(photoID: photo.id) {
+                let r = try catalog.export(photo: photo, version: v, format: o.format)
+                print("✓ [\(v.name)] → \(r.url.path)  (\(r.decoderID))")
+            }
+        }
+    default:
+        print(usage); exit(1)
+    }
+}
+
 let args = CommandLine.arguments.dropFirst()
 do {
     guard let command = args.first else { print(usage); exit(1) }
+    if command == "library" {
+        try library(args.dropFirst())
+        exit(0)
+    }
     let o = try parse(args.dropFirst())
     switch command {
     case "decoders":

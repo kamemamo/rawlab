@@ -1,25 +1,17 @@
 import DecoderKit
+import LibraryKit
 import SwiftUI
 
 struct ContentView: View {
     @Bindable var model: AppModel
     @State private var showInspector = true
+    @State private var folderToRemove: LibraryFolder?
 
     var body: some View {
         NavigationSplitView {
-            List(model.files, id: \.self, selection: $model.selection) { url in
-                ThumbnailRow(url: url, image: model.thumbnails[url])
-            }
-            .navigationSplitViewColumnWidth(min: 170, ideal: 210)
-            .overlay {
-                if model.files.isEmpty {
-                    ContentUnavailableView {
-                        Label("RAW がありません", systemImage: "camera.aperture")
-                    } actions: {
-                        Button("フォルダを開く…") { model.openFolder() }
-                    }
-                }
-            }
+            sidebar
+        } content: {
+            photoList
         } detail: {
             PreviewArea(model: model)
                 .inspector(isPresented: $showInspector) {
@@ -27,37 +19,146 @@ struct ContentView: View {
                         .inspectorColumnWidth(min: 280, ideal: 320, max: 420)
                 }
         }
-        .navigationTitle(model.selection?.lastPathComponent ?? "RawLab")
-        .navigationSubtitle(model.metadata?.summary ?? "")
+        .navigationTitle(model.selectedPhoto?.fileName ?? "RawLab")
+        .navigationSubtitle(model.selectedPhoto?.metadata?.summary ?? "")
         .toolbar {
             ToolbarItemGroup {
-                Button { model.openFolder() } label: { Label("フォルダを開く", systemImage: "folder") }
                 Toggle(isOn: $model.compareEnabled) { Label("比較", systemImage: "rectangle.split.2x1") }
                 Button { model.export() } label: { Label("書き出し", systemImage: "square.and.arrow.up") }
-                    .disabled(model.selection == nil)
+                    .disabled(model.selectedPhoto?.isMissing ?? true)
                 Button { showInspector.toggle() } label: { Label("調整", systemImage: "slider.horizontal.3") }
+            }
+        }
+        .confirmationDialog(
+            "「\(folderToRemove?.name ?? "")」をライブラリから外しますか?",
+            isPresented: Binding(get: { folderToRemove != nil }, set: { if !$0 { folderToRemove = nil } }),
+            presenting: folderToRemove
+        ) { folder in
+            Button("ライブラリから外す", role: .destructive) { model.removeFolder(folder) }
+        } message: { _ in
+            Text("RAW ファイルと書き出したファイルはそのまま残りますが、このフォルダの写真の現像データと書き出し履歴は削除されます。")
+        }
+    }
+
+    private var sidebar: some View {
+        List(selection: $model.sidebarSelection) {
+            Label("すべての写真", systemImage: "photo.on.rectangle").tag(SidebarItem.all)
+            Section("フォルダ") {
+                ForEach(model.folders) { folder in
+                    HStack {
+                        Label(folder.name, systemImage: folder.isAvailable ? "folder" : "externaldrive.badge.xmark")
+                            .help(folder.path)
+                        Spacer()
+                        Text("\(model.folderCounts[folder.id] ?? 0)").foregroundStyle(.secondary).monospacedDigit()
+                    }
+                    .tag(SidebarItem.folder(folder.id))
+                    .contextMenu {
+                        Button("Finder で表示") { model.revealInFinder(folder.url) }
+                        Button("ライブラリから外す…") { folderToRemove = folder }
+                    }
+                }
+            }
+        }
+        .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                Button { model.addFolder() } label: { Label("フォルダを追加", systemImage: "plus") }
+                Spacer()
+                Button { model.rescanAll() } label: { Image(systemName: "arrow.clockwise") }
+                    .help("すべてのフォルダを再スキャン")
+                    .disabled(model.isScanning)
+            }
+            .buttonStyle(.borderless)
+            .padding(10)
+        }
+    }
+
+    private var photoList: some View {
+        List(model.photos, selection: $model.selectedPhotoID) { photo in
+            PhotoRow(photo: photo, image: model.thumbnails[photo.id], state: model.exportStates[photo.id])
+                .task(id: photo.id) { await model.loadThumbnail(for: photo) }
+        }
+        .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+        .overlay {
+            if model.photos.isEmpty {
+                if model.isScanning {
+                    ProgressView("スキャン中…")
+                } else {
+                    ContentUnavailableView {
+                        Label("写真がありません", systemImage: "camera.aperture")
+                    } description: {
+                        Text("RAW の入ったフォルダをライブラリに追加してください")
+                    } actions: {
+                        Button("フォルダを追加…") { model.addFolder() }
+                    }
+                }
             }
         }
     }
 }
 
-struct ThumbnailRow: View {
-    let url: URL
+struct PhotoRow: View {
+    let photo: Photo
     let image: CGImage?
+    let state: ExportState?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Group {
-                if let image {
-                    Image(decorative: image, scale: 1).resizable().scaledToFit()
-                } else {
-                    Rectangle().fill(.quaternary).aspectRatio(1.5, contentMode: .fit)
+            ZStack(alignment: .topTrailing) {
+                Group {
+                    if let image {
+                        Image(decorative: image, scale: 1).resizable().scaledToFit()
+                    } else {
+                        Rectangle().fill(.quaternary).aspectRatio(1.5, contentMode: .fit)
+                            .overlay {
+                                if photo.isMissing {
+                                    Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                                }
+                            }
+                    }
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .opacity(photo.isMissing ? 0.5 : 1)
+
+                HStack(spacing: 3) {
+                    if photo.versionCount > 1 {
+                        Badge(text: "\(photo.versionCount)", systemImage: "square.stack")
+                    }
+                    switch state {
+                    case .needsReexport: Badge(systemImage: "arrow.triangle.2.circlepath", tint: .orange)
+                    case .upToDate: Badge(systemImage: "checkmark", tint: .green)
+                    default: EmptyView()
+                    }
+                }
+                .padding(4)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            Text(url.lastPathComponent).font(.caption).lineLimit(1)
+            HStack(spacing: 4) {
+                if photo.isMissing {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                }
+                Text(photo.fileName).font(.caption).lineLimit(1)
+            }
         }
         .padding(.vertical, 4)
+        .help(photo.isMissing ? "見つかりません: \(photo.path)" : photo.path)
+    }
+}
+
+private struct Badge: View {
+    var text: String? = nil
+    let systemImage: String
+    var tint: Color = .black
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Image(systemName: systemImage)
+            if let text { Text(text) }
+        }
+        .font(.caption2.bold())
+        .foregroundStyle(.white)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .background(tint.opacity(0.75), in: Capsule())
     }
 }
 
@@ -67,11 +168,16 @@ struct PreviewArea: View {
     var body: some View {
         ZStack {
             Color(white: 0.12).ignoresSafeArea()
-            if model.previews.isEmpty {
+            if let photo = model.selectedPhoto, photo.isMissing {
+                ContentUnavailableView {
+                    Label("RAW が見つかりません", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text("元の場所: \(photo.path)\nフォルダを戻すか、移動先のフォルダをライブラリに追加して再スキャンすると、現像データを引き継いでつなぎ直します。")
+                }
+                .foregroundStyle(.white)
+            } else if model.previews.isEmpty {
                 if model.isDecoding {
                     ProgressView("デコード中…").controlSize(.large).foregroundStyle(.white)
-                } else if !model.status.isEmpty {
-                    Text(model.status).foregroundStyle(.secondary)
                 }
             } else {
                 HStack(spacing: 8) {

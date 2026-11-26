@@ -9,16 +9,15 @@ struct RawLabApp: App {
     var body: some Scene {
         WindowGroup("RawLab") {
             ContentView(model: model)
-                .frame(minWidth: 1100, minHeight: 680)
-                .onAppear { model.openInitialFolder() }
+                .frame(minWidth: 1280, minHeight: 720)
+                .onAppear { model.start() }
         }
         .commands {
             CommandGroup(after: .newItem) {
-                Button("フォルダを開く…") { model.openFolder() }
+                Button("フォルダをライブラリに追加…") { model.addFolder() }
                     .keyboardShortcut("o")
-                Button("書き出し…") { model.export() }
-                    .keyboardShortcut("e")
-                    .disabled(model.selection == nil)
+                Button("すべてのフォルダを再スキャン") { model.rescanAll() }
+                    .keyboardShortcut("r")
             }
         }
     }

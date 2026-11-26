@@ -151,3 +151,41 @@ public enum RawThumbnail {
         return CGImageSourceCreateThumbnailAtIndex(source, 0, opts as CFDictionary)
     }
 }
+
+// MARK: - 将来項目を足しても古い保存データを読めるよう、欠けているキーは既定値にする
+
+extension DevelopSettings {
+    private enum Keys: String, CodingKey {
+        case exposure, temperature, tint, contrast, highlights, shadows, vibrance, saturation, noiseReduction, sharpness
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Keys.self)
+        self.init()
+        exposure = try c.decodeIfPresent(Double.self, forKey: .exposure) ?? 0
+        temperature = try c.decodeIfPresent(Double.self, forKey: .temperature) ?? 0
+        tint = try c.decodeIfPresent(Double.self, forKey: .tint) ?? 0
+        contrast = try c.decodeIfPresent(Double.self, forKey: .contrast) ?? 0
+        highlights = try c.decodeIfPresent(Double.self, forKey: .highlights) ?? 0
+        shadows = try c.decodeIfPresent(Double.self, forKey: .shadows) ?? 0
+        vibrance = try c.decodeIfPresent(Double.self, forKey: .vibrance) ?? 0
+        saturation = try c.decodeIfPresent(Double.self, forKey: .saturation) ?? 0
+        noiseReduction = try c.decodeIfPresent(Double.self, forKey: .noiseReduction) ?? 0
+        sharpness = try c.decodeIfPresent(Double.self, forKey: .sharpness) ?? 0
+    }
+}
+
+extension DecodeOptions {
+    private enum Keys: String, CodingKey {
+        case demosaic, applyAsShotWB, halfSize, noiseReduction
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Keys.self)
+        self.init()
+        demosaic = try c.decodeIfPresent(DemosaicMethod.self, forKey: .demosaic) ?? .auto
+        applyAsShotWB = try c.decodeIfPresent(Bool.self, forKey: .applyAsShotWB) ?? true
+        halfSize = try c.decodeIfPresent(Bool.self, forKey: .halfSize) ?? false
+        noiseReduction = try c.decodeIfPresent(Double.self, forKey: .noiseReduction) ?? 0
+    }
+}
