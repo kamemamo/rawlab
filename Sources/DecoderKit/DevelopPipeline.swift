@@ -22,6 +22,8 @@ public struct DevelopSettings: Hashable, Sendable, Codable {
     public var levelsWhite: Double = 1
     /// トーンカーブの点(sRGB ガンマ空間、0...1)。空なら直線
     public var curve: [CurvePoint] = []
+    /// ハイライト圧縮 0...1。1 を超える明るさを肩の丸いカーブで 1 以内に収める(白飛びの復元と組み合わせる)
+    public var highlightRolloff: Double = 0
 
     public init() {}
 
@@ -112,6 +114,9 @@ public enum DevelopPipeline {
         if s.temperature != 0 || s.tint != 0 {
             img = whiteBalance(img, temperature: s.temperature, tint: s.tint)
         }
+        if s.highlightRolloff > 0 {
+            img = rolloff(img, amount: s.highlightRolloff)
+        }
         if s.highlights != 0 || s.shadows != 0 {
             img = img.applyingFilter("CIHighlightShadowAdjust", parameters: [
                 "inputHighlightAmount": 1 - s.highlights,
@@ -163,6 +168,36 @@ public enum DevelopPipeline {
             ])
         }
         return img
+    }
+
+    /// ハイライト圧縮(リニアのまま)。
+    /// 膝 k より上の明るさを、白点 W までが 1 に収まるよう対数の肩で丸める。膝では傾きが 1 なので段差が出ない。
+    /// 強さ 0〜1 で k = 1 → 0.5、W = 1 → 5(元の白の 5 倍の明るさまで階調を残す)
+    static func rolloff(_ image: CIImage, amount: Double) -> CIImage {
+        let a = min(max(amount, 0), 1)
+        let knee = 1 - 0.5 * a
+        let whitePoint = 1 + 4 * a
+        // 膝で傾き 1 になる係数 c を二分法で求める: (1-k)·c / log(1 + c·(W-k)) = 1
+        var lo = 1e-6, hi = 1e4
+        for _ in 0..<80 {
+            let c = (lo + hi) / 2
+            let slope = (1 - knee) * c / log(1 + c * (whitePoint - knee))
+            if slope < 1 { lo = c } else { hi = c }
+        }
+        let c = (lo + hi) / 2
+        let norm = log(1 + c * (whitePoint - knee))
+        let maxIn = 8.0
+        let count = 2048
+        let lut: [Float] = (0..<count).flatMap { i -> [Float] in
+            let x = Double(i) / Double(count - 1) * maxIn
+            let y = x <= knee ? x : min(knee + (1 - knee) * log(1 + c * (x - knee)) / norm, 1)
+            return [Float(y), Float(y), Float(y)]
+        }
+        return image.applyingFilter("CIColorCurves", parameters: [
+            "inputCurvesData": lut.withUnsafeBufferPointer { Data(buffer: $0) },
+            "inputCurvesDomain": CIVector(x: 0, y: CGFloat(maxIn)),
+            "inputColorSpace": CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+        ])
     }
 
     /// 色温度・色かぶりの補正(neutral → targetNeutral の変換。target を下げると暖色寄りになる)。
@@ -309,7 +344,7 @@ public enum RawThumbnail {
 extension DevelopSettings {
     private enum Keys: String, CodingKey {
         case exposure, temperature, tint, contrast, highlights, shadows, vibrance, saturation, noiseReduction, sharpness
-        case levelsBlack, levelsGamma, levelsWhite, curve
+        case levelsBlack, levelsGamma, levelsWhite, curve, highlightRolloff
     }
 
     /// 後から足した項目は既定値なら書かない(既存バージョンの内容ハッシュが変わって
@@ -330,6 +365,7 @@ extension DevelopSettings {
         if levelsGamma != 1 { try c.encode(levelsGamma, forKey: .levelsGamma) }
         if levelsWhite != 1 { try c.encode(levelsWhite, forKey: .levelsWhite) }
         if !curve.isEmpty { try c.encode(curve, forKey: .curve) }
+        if highlightRolloff != 0 { try c.encode(highlightRolloff, forKey: .highlightRolloff) }
     }
 
     public init(from decoder: Decoder) throws {
@@ -349,12 +385,23 @@ extension DevelopSettings {
         levelsGamma = try c.decodeIfPresent(Double.self, forKey: .levelsGamma) ?? 1
         levelsWhite = try c.decodeIfPresent(Double.self, forKey: .levelsWhite) ?? 1
         curve = try c.decodeIfPresent([CurvePoint].self, forKey: .curve) ?? []
+        highlightRolloff = try c.decodeIfPresent(Double.self, forKey: .highlightRolloff) ?? 0
     }
 }
 
 extension DecodeOptions {
     private enum Keys: String, CodingKey {
-        case demosaic, applyAsShotWB, halfSize, noiseReduction
+        case demosaic, applyAsShotWB, halfSize, noiseReduction, highlight
+    }
+
+    /// 後から足した項目は既定値なら書かない(既存バージョンの内容ハッシュを変えない)
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        try c.encode(demosaic, forKey: .demosaic)
+        try c.encode(applyAsShotWB, forKey: .applyAsShotWB)
+        try c.encode(halfSize, forKey: .halfSize)
+        try c.encode(noiseReduction, forKey: .noiseReduction)
+        if highlight != .clip { try c.encode(highlight, forKey: .highlight) }
     }
 
     public init(from decoder: Decoder) throws {
@@ -364,5 +411,6 @@ extension DecodeOptions {
         applyAsShotWB = try c.decodeIfPresent(Bool.self, forKey: .applyAsShotWB) ?? true
         halfSize = try c.decodeIfPresent(Bool.self, forKey: .halfSize) ?? false
         noiseReduction = try c.decodeIfPresent(Double.self, forKey: .noiseReduction) ?? 0
+        highlight = try c.decodeIfPresent(HighlightMode.self, forKey: .highlight) ?? .clip
     }
 }

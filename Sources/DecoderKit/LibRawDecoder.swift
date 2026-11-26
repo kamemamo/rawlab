@@ -22,7 +22,8 @@ public struct LibRawDecoder: RawDecoder {
         raw.pointee.params.gamm.1 = 1.0
         raw.pointee.params.no_auto_bright = 1    // 勝手に明るくしない
         raw.pointee.params.output_color = 8      // Rec.2020
-        raw.pointee.params.highlight = 0         // 白飛びはクリップ
+        // 白飛び: 0 = クリップ、2 = ブレンド(飽和していない色と混ぜて復元)
+        raw.pointee.params.highlight = options.highlight == .reconstruct ? 2 : 0
         raw.pointee.params.use_camera_wb = options.applyAsShotWB ? 1 : 0
         raw.pointee.params.use_auto_wb = 0
         raw.pointee.params.half_size = options.halfSize ? 1 : 0

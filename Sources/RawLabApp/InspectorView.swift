@@ -67,6 +67,11 @@ struct InspectorView: View {
             ValueSlider("デコーダー NR", value: $model.decodeOptions.noiseReduction, in: 0...1)
                 .help("Core Image / LibRaw のみ有効")
             Toggle("撮影時の WB を使う", isOn: $model.decodeOptions.applyAsShotWB)
+            Picker("白飛び", selection: $model.decodeOptions.highlight) {
+                ForEach(HighlightMode.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
+            .help("色を補って復元: 飽和していない色と周りの色合いから飽和した色を推定し、白より明るい階調も残す。下の「ハイライト圧縮」と組み合わせると、露出を下げずに雲などの階調が見える(RawLab エンジン・LibRaw)")
+            .disabled(model.decoderID != "rawlab" && model.decoderID != "libraw")
         }
     }
 

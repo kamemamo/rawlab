@@ -28,6 +28,8 @@ public struct DecodeOptions: Hashable, Sendable, Codable {
     public var halfSize = false
     /// デコーダー内蔵のノイズリダクション 0...1(0 = オフ)。D5 の高感度比較用。
     public var noiseReduction: Double = 0
+    /// 白飛びの扱い(RawLab エンジンと LibRaw で有効)
+    public var highlight: HighlightMode = .clip
 
     public init(demosaic: DemosaicMethod = .auto, applyAsShotWB: Bool = true,
                 halfSize: Bool = false, noiseReduction: Double = 0) {
@@ -35,6 +37,21 @@ public struct DecodeOptions: Hashable, Sendable, Codable {
         self.applyAsShotWB = applyAsShotWB
         self.halfSize = halfSize
         self.noiseReduction = noiseReduction
+    }
+}
+
+/// 白飛びの扱い
+public enum HighlightMode: String, CaseIterable, Sendable, Codable {
+    /// 1 色でも飽和したら白にする(従来どおり)
+    case clip
+    /// 飽和していない色と周りの色合いから、飽和した色を推定して補う。1 を超える明るさも残す
+    case reconstruct
+
+    public var title: String {
+        switch self {
+        case .clip: "切り捨て(白)"
+        case .reconstruct: "色を補って復元"
+        }
     }
 }
 

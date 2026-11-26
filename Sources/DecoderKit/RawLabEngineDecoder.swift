@@ -30,15 +30,23 @@ public struct RawLabEngineDecoder: RawDecoder {
         guard libraw_unpack(lr) == 0 else { throw DecoderError.failed("RawLab エンジン: 展開できません") }
 
         let sensor = try Sensor(lr)
-        let plane = sensor.normalizedPlane(asShotWB: options.applyAsShotWB)
+        let reconstruct = options.highlight == .reconstruct
+        let wb = sensor.whiteBalance(asShot: options.applyAsShotWB)
+        let plane = sensor.normalizedPlane(wb: wb, clipAfterWB: !reconstruct)
+        // 補間で飽和の値を超えないよう、色ごとに上限をかける(復元するときの飽和の値は wb[c])。
+        // 強い境目の近くで Malvar-He-Cutler が行き過ぎた値を出しても、色の付いた斑点にならない
+        let upper: [Float] = reconstruct ? wb : [1, 1, 1]
         var rgb: [Float]
         var width = sensor.width, height = sensor.height
         if options.halfSize {
             (rgb, width, height) = Demosaic.superpixel(plane, sensor.width, sensor.height, sensor.pattern)
         } else if options.demosaic == .linear {
-            rgb = Demosaic.bilinear(plane, sensor.width, sensor.height, sensor.pattern)
+            rgb = Demosaic.bilinear(plane, sensor.width, sensor.height, sensor.pattern, upper: upper)
         } else {
-            rgb = Demosaic.malvar(plane, sensor.width, sensor.height, sensor.pattern)
+            rgb = Demosaic.malvar(plane, sensor.width, sensor.height, sensor.pattern, upper: upper)
+        }
+        if reconstruct {
+            HighlightReconstruction.reconstruct(&rgb, width, height, clip: wb)
         }
         sensor.convertToSRGB(&rgb)
 
@@ -146,9 +154,12 @@ private struct Sensor {
         }
     }
 
-    /// 黒レベルを引き、白レベルで 0〜1 にし、ホワイトバランスをかけて 1 で頭打ちにした 1 枚の面
-    func normalizedPlane(asShotWB: Bool) -> [Float] {
-        let wb = asShotWB ? asShotMul : daylightMul
+    func whiteBalance(asShot: Bool) -> [Float] { asShot ? asShotMul : daylightMul }
+
+    /// 黒レベルを引き、白レベルで 0〜1 にし、ホワイトバランスをかけた 1 枚の面。
+    /// clipAfterWB なら WB 後に 1 で頭打ち(白飛びは白)、そうでなければ WB 前に 1 で頭打ち
+    /// (色ごとの飽和の値が wb[c] になり、白飛びの復元で使える)
+    func normalizedPlane(wb: [Float], clipAfterWB: Bool) -> [Float] {
         var out = [Float](repeating: 0, count: width * height)
         let pat = pattern, blackPos = blackForPosition, bp = blackPattern, white = white, w = width
         raw.withUnsafeBufferPointer { src in
@@ -159,7 +170,9 @@ private struct Sensor {
                         var black = blackPos[pos]
                         if bp.rows > 0 { black += bp.values[(y % bp.rows) * bp.cols + x % bp.cols] }
                         let v = (Float(src[y * w + x]) - black) / max(white - black, 1)
-                        dst[y * w + x] = min(max(v * wb[pat[pos]], 0), 1)
+                        dst[y * w + x] = clipAfterWB
+                            ? min(max(v * wb[pat[pos]], 0), 1)
+                            : min(max(v, 0), 1) * wb[pat[pos]]
                     }
                 }
             }
@@ -231,8 +244,8 @@ enum Demosaic {
         return (out, ow, oh)
     }
 
-    static func bilinear(_ plane: [Float], _ w: Int, _ h: Int, _ pat: [Int]) -> [Float] {
-        interpolate(plane, w, h, pat) { p, s, color, rowColor in
+    static func bilinear(_ plane: [Float], _ w: Int, _ h: Int, _ pat: [Int], upper: [Float] = [1, 1, 1]) -> [Float] {
+        interpolate(plane, w, h, pat, upper) { p, s, color, rowColor in
             // p は中心を指すポインタ。s は 1 行分の幅
             let n = p[-s], so = p[s], we = p[-1], e = p[1]
             if color == 1 {
@@ -246,8 +259,8 @@ enum Demosaic {
     }
 
     /// Malvar-He-Cutler (2004): 5×5 の線形補間に、同じ色の勾配で補正をかける
-    static func malvar(_ plane: [Float], _ w: Int, _ h: Int, _ pat: [Int]) -> [Float] {
-        interpolate(plane, w, h, pat) { p, s, color, rowColor in
+    static func malvar(_ plane: [Float], _ w: Int, _ h: Int, _ pat: [Int], upper: [Float] = [1, 1, 1]) -> [Float] {
+        interpolate(plane, w, h, pat, upper) { p, s, color, rowColor in
             let c = p[0]
             let n = p[-s], so = p[s], we = p[-1], e = p[1]
             let nn = p[-2 * s], ss = p[2 * s], ww = p[-2], ee = p[2]
@@ -266,7 +279,7 @@ enum Demosaic {
 
     /// 各画素について (R, G, B) を求めて RGBA に並べる共通部分
     private static func interpolate(
-        _ plane: [Float], _ w: Int, _ h: Int, _ pat: [Int],
+        _ plane: [Float], _ w: Int, _ h: Int, _ pat: [Int], _ upper: [Float],
         _ f: (UnsafePointer<Float>, Int, Int, Int) -> (Float, Float, Float)
     ) -> [Float] {
         let (pad, s) = padded(plane, w, h)
@@ -282,9 +295,9 @@ enum Demosaic {
                         let center = src.baseAddress!.advanced(by: (y + 2) * s + x + 2)
                         let (r, g, b) = f(center, s, color, rowColor)
                         let o = (y * w + x) * 4
-                        dst[o] = min(max(r, 0), 1)
-                        dst[o + 1] = min(max(g, 0), 1)
-                        dst[o + 2] = min(max(b, 0), 1)
+                        dst[o] = min(max(r, 0), upper[0])
+                        dst[o + 1] = min(max(g, 0), upper[1])
+                        dst[o + 2] = min(max(b, 0), upper[2])
                     }
                 }
             }
