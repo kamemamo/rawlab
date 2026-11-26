@@ -98,9 +98,26 @@ enum HighlightReconstruction {
                     for k in 0..<3 { floorSum = max(floorSum, v[k] / max(ch[k], 1e-4)) }
                     let sum = den > 0.05 ? max(num / den, 0) : floorSum
 
+                    // 色合いがこの画素の飽和していない色どうしの比と合っているか(信頼度)。
+                    // 合わないとき(例: 青みの空なのに、まわりの暖色の壁の色合いを使ってしまう)は、
+                    // 「無彩色に近い」とみなす見積もり(飽和していない色の平均)に寄せる
+                    var mismatch: Float = 0, pairs: Float = 0
+                    for i in 0..<3 where t[i] < 0.5 {
+                        for j in (i + 1)..<3 where t[j] < 0.5 && v[i] > 0 && v[j] > 0 {
+                            mismatch += abs(log((v[i] / v[j]) / max(ch[i] / max(ch[j], 1e-4), 1e-4)))
+                            pairs += 1
+                        }
+                    }
+                    let confidence: Float = pairs > 0 ? exp(-3 * mismatch / pairs) : (den > 0.05 ? 0.5 : 1)
+                    var grayNum: Float = 0, grayDen: Float = 0
+                    for k in 0..<3 { grayNum += (1 - t[k]) * v[k]; grayDen += 1 - t[k] }
+                    let gray = grayDen > 0.05 ? grayNum / grayDen : 0
+
                     var out = [Float](repeating: 0, count: 3)
                     for k in 0..<3 {
-                        let rebuilt = max(v[k], ch[k] * sum)
+                        let byChroma = ch[k] * sum
+                        let estimate = grayDen > 0.05 ? confidence * byChroma + (1 - confidence) * gray : byChroma
+                        let rebuilt = max(v[k], estimate)
                         out[k] = v[k] + t[k] * (rebuilt - v[k])
                     }
                     // 緑が飽和しているのに赤・青の両方より低いとマゼンタになるので、少なくとも低い方まで上げる

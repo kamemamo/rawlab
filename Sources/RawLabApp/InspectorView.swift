@@ -11,7 +11,14 @@ struct InspectorView: View {
         Form {
             if model.selectedPhoto != nil {
                 Section("レベル") {
-                    HistogramView(histogram: model.histogram, showClipping: $model.showClipping)
+                    Picker("表示する色", selection: $model.channelView) {
+                        ForEach(ChannelView.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .help("R・G・B を選ぶと、大画面をその色だけの白黒で表示し、ヒストグラムと白飛びの判定もその色だけにする")
+                    HistogramView(histogram: model.histogram, showClipping: $model.showClipping,
+                                  channel: model.channelView)
                 }
                 versionSection
                 decoderSection

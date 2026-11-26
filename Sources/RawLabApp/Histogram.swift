@@ -1,6 +1,29 @@
 import CoreGraphics
 import Foundation
 
+/// 大画面で見る色(全色、または R / G / B のどれか 1 色を白黒で)
+enum ChannelView: String, CaseIterable, Identifiable, Sendable {
+    case rgb, red, green, blue
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .rgb: "RGB"
+        case .red: "R"
+        case .green: "G"
+        case .blue: "B"
+        }
+    }
+    /// RGBA の何番目か(全色なら nil)
+    var index: Int? {
+        switch self {
+        case .rgb: nil
+        case .red: 0
+        case .green: 1
+        case .blue: 2
+        }
+    }
+}
+
 /// 表示中の画像のヒストグラム(R / G / B / 輝度、各 256 段階)
 struct Histogram: Sendable {
     var red: [Float]
@@ -13,6 +36,12 @@ struct Histogram: Sendable {
     var highlightClipping: Double
     /// すべてのチャンネルが 0 の画素の割合
     var shadowClipping: Double
+    /// 色ごとの白飛び・黒つぶれの割合 [R, G, B]
+    var channelHighlightClipping: [Double] = [0, 0, 0]
+    var channelShadowClipping: [Double] = [0, 0, 0]
+
+    func highlightClipping(_ c: ChannelView) -> Double { c.index.map { channelHighlightClipping[$0] } ?? highlightClipping }
+    func shadowClipping(_ c: ChannelView) -> Double { c.index.map { channelShadowClipping[$0] } ?? shadowClipping }
 
     /// 縮小して数える(長辺 512 で十分)
     static func compute(from image: CGImage, maxPixel: Int = 512) -> Histogram? {
@@ -38,23 +67,36 @@ struct Histogram: Sendable {
             }
         }
         // 端の山(白飛び・黒つぶれ)で全体が潰れないよう、端を除いた最大値で正規化
+        let n = Float(count)
+        let chHigh = [r[255], g[255], b[255]].map { Double($0 / n) }
+        let chLow = [r[0], g[0], b[0]].map { Double($0 / n) }
         let peak = max(1, [r, g, b, l].map { $0[1..<255].max() ?? 1 }.max() ?? 1)
         func norm(_ a: [Float]) -> [Float] { a.map { min($0 / peak, 1) } }
         return Histogram(red: norm(r), green: norm(g), blue: norm(b), luminance: norm(l), luminanceCounts: l,
                          highlightClipping: Double(high) / Double(count),
-                         shadowClipping: Double(low) / Double(count))
+                         shadowClipping: Double(low) / Double(count),
+                         channelHighlightClipping: chHigh, channelShadowClipping: chLow)
     }
 
-    /// 白飛び(赤)・黒つぶれ(青)だけを塗った重ね表示用の画像
-    static func clippingOverlay(from image: CGImage) -> CGImage? {
+    /// 白飛び(赤)・黒つぶれ(青)だけを塗った重ね表示用の画像。
+    /// channel を指定すると、その色だけで判定する(255 なら白飛び、0 なら黒つぶれ)
+    static func clippingOverlay(from image: CGImage, channel: Int? = nil) -> CGImage? {
         let w = image.width, h = image.height
         guard var pixels = rgba8(image, width: w, height: h) else { return nil }
         pixels.withUnsafeMutableBufferPointer { p in
             for i in 0..<(w * h) {
                 let R = p[i * 4], G = p[i * 4 + 1], B = p[i * 4 + 2]
-                if R == 255 || G == 255 || B == 255 {
+                let high: Bool, low: Bool
+                if let k = channel {
+                    high = p[i * 4 + k] == 255
+                    low = p[i * 4 + k] == 0
+                } else {
+                    high = R == 255 || G == 255 || B == 255
+                    low = R == 0 && G == 0 && B == 0
+                }
+                if high {
                     (p[i * 4], p[i * 4 + 1], p[i * 4 + 2], p[i * 4 + 3]) = (255, 40, 40, 255)
-                } else if R == 0 && G == 0 && B == 0 {
+                } else if low {
                     (p[i * 4], p[i * 4 + 1], p[i * 4 + 2], p[i * 4 + 3]) = (40, 110, 255, 255)
                 } else {
                     (p[i * 4], p[i * 4 + 1], p[i * 4 + 2], p[i * 4 + 3]) = (0, 0, 0, 0)
@@ -92,6 +134,7 @@ import SwiftUI
 struct HistogramView: View {
     let histogram: Histogram?
     @Binding var showClipping: Bool
+    var channel: ChannelView = .rgb
 
     var body: some View {
         VStack(spacing: 4) {
@@ -105,25 +148,29 @@ struct HistogramView: View {
                 }
                 guard let h = histogram else { return }
                 ctx.blendMode = .screen
-                for (values, color) in [(h.red, Color.red), (h.green, Color.green), (h.blue, Color.blue)] {
-                    ctx.fill(area(values, size), with: .color(color.opacity(0.75)))
+                for (i, values, color) in [(0, h.red, Color.red), (1, h.green, Color.green), (2, h.blue, Color.blue)] {
+                    // 1 色だけ見ているときは、その色をはっきり、他は薄く
+                    let opacity = channel.index == nil ? 0.75 : (channel.index == i ? 0.95 : 0.12)
+                    ctx.fill(area(values, size), with: .color(color.opacity(opacity)))
                 }
                 ctx.blendMode = .normal
-                ctx.stroke(line(h.luminance, size), with: .color(.white.opacity(0.7)), lineWidth: 1)
+                if channel == .rgb {
+                    ctx.stroke(line(h.luminance, size), with: .color(.white.opacity(0.7)), lineWidth: 1)
+                }
             }
             .frame(height: 90)
             .clipShape(RoundedRectangle(cornerRadius: 4))
-            .overlay(alignment: .topLeading) { warning(h: histogram?.shadowClipping, color: .blue) }
-            .overlay(alignment: .topTrailing) { warning(h: histogram?.highlightClipping, color: .red) }
+            .overlay(alignment: .topLeading) { warning(h: histogram?.shadowClipping(channel), color: .blue) }
+            .overlay(alignment: .topTrailing) { warning(h: histogram?.highlightClipping(channel), color: .red) }
 
             HStack {
-                Text("黒つぶれ \(percent(histogram?.shadowClipping))")
+                Text("黒つぶれ \(percent(histogram?.shadowClipping(channel)))")
                 Spacer()
                 Toggle("大画面に表示", isOn: $showClipping)
                     .toggleStyle(.checkbox)
                     .help("白飛びを赤、黒つぶれを青で表示")
                 Spacer()
-                Text("白飛び \(percent(histogram?.highlightClipping))")
+                Text("白飛び \(percent(histogram?.highlightClipping(channel)))")
             }
             .font(.caption.monospacedDigit())
             .foregroundStyle(.secondary)

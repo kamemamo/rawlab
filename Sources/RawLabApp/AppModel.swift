@@ -149,6 +149,15 @@ final class AppModel {
         didSet { if oldValue != showClipping { rerender() } }
     }
     var clippingOverlay: CGImage?
+    /// 大画面で見る色(RGB / R / G / B)
+    var channelView = ChannelView.rgb {
+        didSet {
+            if oldValue != channelView {
+                rerender()
+                if compareMode != .off { renderBefore() }
+            }
+        }
+    }
 
     /// レベル補正・トーンカーブ用: その 2 つをかける前の画像のヒストグラム
     var toneHistogram: Histogram?
@@ -639,11 +648,15 @@ final class AppModel {
         let box = ImageBox(image: b.image)
         let settings = hoverSettings ?? self.settings
         let clipping = showClipping
+        let channel = channelView.index
         renderTask = Task {
             let result = await Task.detached(priority: .userInitiated) { () -> (CGImage, Histogram?, CGImage?)? in
                 guard let cg = DevelopPipeline.renderCGImage(DevelopPipeline.apply(settings, to: box.image))
                 else { return nil }
-                return (cg, Histogram.compute(from: cg), clipping ? Histogram.clippingOverlay(from: cg) : nil)
+                // ヒストグラムと白飛びの判定は色付きの画像で。表示だけ 1 色の白黒にする
+                let shown = channel.flatMap { Self.singleChannel(cg, $0) } ?? cg
+                return (shown, Histogram.compute(from: cg),
+                        clipping ? Histogram.clippingOverlay(from: cg, channel: channel) : nil)
             }.value
             guard !Task.isCancelled, let result else { return }
             preview = result.0
@@ -653,13 +666,26 @@ final class AppModel {
         if loupeEnabled, loupePoint != nil { renderLoupe() }
     }
 
+    /// 1 色だけを白黒で表示する画像にする(R・G・B すべてをその色の値に)
+    nonisolated static func singleChannel(_ image: CGImage, _ k: Int) -> CGImage? {
+        var vectors = [CIVector](repeating: CIVector(x: 0, y: 0, z: 0, w: 0), count: 3)
+        let pick = CIVector(x: k == 0 ? 1 : 0, y: k == 1 ? 1 : 0, z: k == 2 ? 1 : 0, w: 0)
+        vectors = vectors.map { _ in pick }
+        let gray = CIImage(cgImage: image).applyingFilter("CIColorMatrix", parameters: [
+            "inputRVector": vectors[0], "inputGVector": vectors[1], "inputBVector": vectors[2],
+        ])
+        return DevelopPipeline.renderCGImage(gray)
+    }
+
     /// 補正前(同じデコーダーで補正をすべて 0 にしたもの)を描く
     private func renderBefore() {
         guard let b = base else { return }
         let box = ImageBox(image: b.image)
+        let channel = channelView.index
         Task {
             let cg = await Task.detached(priority: .userInitiated) {
                 DevelopPipeline.renderCGImage(DevelopPipeline.apply(DevelopSettings(), to: box.image))
+                    .map { cg in channel.flatMap { Self.singleChannel(cg, $0) } ?? cg }
             }.value
             guard base?.image === box.image else { return }
             beforePreview = cg
