@@ -5,3 +5,5 @@ out/
 build/
 rawler-ffi/target/
 *.rawlab.json
+samples/*
+!samples/.gitkeep

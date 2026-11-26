@@ -114,7 +114,25 @@ public enum DecoderError: LocalizedError {
 }
 
 public enum RawFiles {
-    public static let extensions: Set<String> = ["nef", "nrw", "cr2", "cr3", "arw", "orf", "dng"]
+    /// メーカーごとの拡張子(一覧表示・README 用)
+    public static let formats: [(maker: String, extensions: [String])] = [
+        ("Nikon", ["nef", "nrw"]),
+        ("Canon", ["cr3", "cr2", "crw"]),
+        ("Sony", ["arw", "srf", "sr2"]),
+        ("OM System / Olympus", ["orf"]),
+        ("Fujifilm", ["raf"]),
+        ("Panasonic / Leica", ["rw2", "raw", "rwl"]),
+        ("Pentax / Ricoh", ["pef", "ptx"]),
+        ("Samsung", ["srw"]),
+        ("Hasselblad", ["3fr", "fff"]),
+        ("Phase One / Leaf / Mamiya", ["iiq", "mos", "mef"]),
+        ("Sigma", ["x3f"]),
+        ("Minolta", ["mrw"]),
+        ("Kodak / Epson", ["dcr", "kdc", "erf"]),
+        ("DNG(Leica・Pentax・スマホなど)", ["dng"]),
+    ]
+
+    public static let extensions: Set<String> = Set(formats.flatMap(\.extensions))
 
     public static func list(in folder: URL) -> [URL] {
         let items = (try? FileManager.default.contentsOfDirectory(

@@ -7,6 +7,23 @@
 - `brew install libraw`
 - Rust(rawler 用)。初回は `cd rawler-ffi && cargo build --release`
 
+## 対応している RAW
+
+| メーカー | 拡張子 | 確認済みの機種(raw.pixls.us のサンプル) |
+|---|---|---|
+| Nikon | NEF / NRW | D5 |
+| Canon | CR3 / CR2 / CRW | EOS R5(CRAW)、EOS 5D Mark IV |
+| Sony | ARW / SRF / SR2 | α7 III(非圧縮 14bit) |
+| OM System / Olympus | ORF | E-M1 Mark II |
+| Fujifilm | RAF | X-T3(X-Trans) |
+| Panasonic / Leica | RW2 / RAW / RWL | LUMIX S5 |
+| Pentax / Ricoh | PEF / PTX | K-1 |
+| Samsung | SRW | NX1(Core Image は非対応、LibRaw / rawler で開く) |
+| Leica ほか | DNG | M10 |
+| Hasselblad / Phase One / Sigma / Minolta / Kodak など | 3FR / FFF / IIQ / MOS / MEF / X3F / MRW / DCR / KDC / ERF | 未確認(デコーダーは対応) |
+
+開けないデコーダーがあっても、自動で次のデコーダーに切り替えて開く。
+
 ## ライブラリ
 
 - **RAW**: 登録したフォルダ(サブフォルダ含む)を読むだけ。移動・変更・書き込みは一切しない
