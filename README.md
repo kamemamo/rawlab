@@ -76,6 +76,7 @@ VERSION=0.1.0 ./scripts/make-dist.sh
 | `Sources/DecoderKit/CoreImageDecoder.swift` | macOS 標準 CIRAWFilter |
 | `Sources/DecoderKit/LibRawDecoder.swift` | LibRaw C API |
 | `Sources/DecoderKit/RawlerDecoder.swift` + `rawler-ffi/` | Rust の rawler(C ABI 経由、PPG デモザイク固定) |
+| `Sources/DecoderKit/RawLabEngineDecoder.swift` | 独自エンジン。LibRaw はモザイクのデータと黒・白レベル・WB・色行列を読むだけで、黒レベル補正 → WB → デモザイク(Malvar-He-Cutler / バイリニア / 半分サイズはスーパーピクセル)→ 色変換は自前。ベイヤー配列のみ(X-Trans は未対応) |
 | `Sources/DecoderKit/DecoderRegistry.swift` | デコーダー一覧とフォールバック |
 | `Sources/DecoderKit/DevelopPipeline.swift` | 共通の現像処理・書き出し・サムネイル |
 | `Sources/DecoderKit/Sidecar.swift` | 旧方式のサイドカー(取り込み専用) |

@@ -62,8 +62,8 @@ struct InspectorView: View {
             Picker("デモザイク", selection: $model.decodeOptions.demosaic) {
                 ForEach(DemosaicMethod.allCases, id: \.self) { Text($0.rawValue.uppercased()).tag($0) }
             }
-            .help("LibRaw のみ有効")
-            .disabled(model.decoderID != "libraw")
+            .help("LibRaw と RawLab エンジンで有効(RawLab エンジンは LINEAR = バイリニア、それ以外 = Malvar-He-Cutler)")
+            .disabled(model.decoderID != "libraw" && model.decoderID != "rawlab")
             ValueSlider("デコーダー NR", value: $model.decodeOptions.noiseReduction, in: 0...1)
                 .help("Core Image / LibRaw のみ有効")
             Toggle("撮影時の WB を使う", isOn: $model.decodeOptions.applyAsShotWB)
