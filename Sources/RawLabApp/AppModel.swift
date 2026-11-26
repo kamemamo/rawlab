@@ -227,7 +227,9 @@ final class AppModel {
 
     init() {
         do {
-            catalog = try Catalog()
+            let c = try Catalog()
+            catalog = c
+            LookStore.directory = c.libraryURL.appendingPathComponent("Looks")
         } catch {
             catalog = nil
             status = "ライブラリを開けません: \(error.localizedDescription)"
@@ -826,6 +828,12 @@ final class AppModel {
             return
         }
         guard let p = selectedTab.param, let base else { return }
+        // 色味は見本を選ぶまで段階を並べない(どれも同じ絵になる)
+        if selectedTab == .look && settings.lookID == nil {
+            variationTask?.cancel()
+            variations = []
+            return
+        }
         let source: CIImage
         if p.usesCrop {
             guard let crop = cropBase else {
@@ -1164,5 +1172,82 @@ final class AppModel {
 
     func displayName(for id: String) -> String {
         DecoderRegistry.decoder(id: id)?.displayName ?? id
+    }
+}
+
+// MARK: - 見本に合わせた色味
+
+extension AppModel {
+    /// 今の写真の色味の見本(縮小コピー)
+    var lookReference: CGImage? { settings.lookID.flatMap(LookStore.reference) }
+    var lookReferenceName: String? { settings.lookID.flatMap(LookStore.name) }
+
+    func chooseLookReference() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.canChooseDirectories = false
+        panel.prompt = "見本にする"
+        panel.message = "色味を近づけたい見本の写真を選んでください(JPEG・PNG・HEIC など)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        setLookReference(url)
+    }
+
+    /// 見本の写真を読み、今の写真をその色味に近づける LUT を作る
+    func setLookReference(_ url: URL) {
+        do {
+            matchLook(try ReferenceImage(url: url))
+        } catch {
+            status = error.localizedDescription
+        }
+    }
+
+    /// 同じ見本で、今の写真(今の補正)に合わせ直す。補正を大きく変えたときや、別の写真に貼ったとき用
+    func rematchLook() {
+        guard let id = settings.lookID, let image = LookStore.reference(id),
+              let ref = try? ReferenceImage(image: image, name: LookStore.name(id) ?? "見本") else {
+            status = "見本の画像が見つかりません"
+            return
+        }
+        matchLook(ref, keepStrength: true)
+    }
+
+    func removeLook() {
+        var s = settings
+        s.lookID = nil
+        s.lookStrength = 100
+        settings = s
+    }
+
+    private func matchLook(_ reference: ReferenceImage, keepStrength: Bool = false) {
+        guard let base else { return }
+        // 見本に合わせる元は、色味をかける前の今の仕上がり
+        var source = settings
+        source.lookID = nil
+        let box = ImageBox(image: base.small)
+        status = "見本「\(reference.name)」に合わせています…"
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { () -> Result<String, Error> in
+                Result {
+                    guard let cg = DevelopPipeline.renderCGImage(DevelopPipeline.apply(source, to: box.image)),
+                          let samples = LookMatcher.srgbSamples(of: cg)?.1
+                    else { throw DecoderError.failed("今の写真を読めません") }
+                    let lut = LookMatcher.match(source: samples, reference: reference.samples)
+                    return try LookStore.save(lut, reference: reference.thumbnail, name: reference.name)
+                }
+            }.value
+            switch result {
+            case .success(let id):
+                var s = settings
+                s.lookID = id
+                if !keepStrength {
+                    s.lookStrength = 100
+                    fineTabs.remove(.look)
+                }
+                settings = s
+                status = "見本「\(reference.name)」の色味にしました"
+            case .failure(let error):
+                status = "色味を作れません: \(error.localizedDescription)"
+            }
+        }
     }
 }

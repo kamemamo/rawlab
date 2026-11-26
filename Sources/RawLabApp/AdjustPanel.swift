@@ -6,6 +6,7 @@ import SwiftUI
 struct AdjustPanel: View {
     @Bindable var model: AppModel
     @FocusState private var focused: Bool
+    @State private var lookDropTargeted = false
 
     private let panelBackground = Color(white: 0.17)
     private let accent = Color(red: 0.31, green: 0.63, blue: 1.0)
@@ -28,6 +29,8 @@ struct AdjustPanel: View {
                 } else if model.selectedTab == .tone {
                     // レベル補正とトーンカーブを 1 つのグラフで(三角はグラフの横軸の真下)
                     CurveEditor(model: model)
+                } else if model.selectedTab == .look {
+                    lookStrip
                 } else {
                     variationStrip
                 }
@@ -145,6 +148,70 @@ struct AdjustPanel: View {
                 ProgressView().controlSize(.small)
             }
         }
+    }
+
+    // MARK: 色味(見本に合わせる)
+
+    /// 左に見本、右に強さの段階。見本の写真はこの枠のどこにドロップしてもよい
+    private var lookStrip: some View {
+        HStack(spacing: 10) {
+            VStack(spacing: 3) {
+                Group {
+                    if let ref = model.lookReference {
+                        Image(decorative: ref, scale: 1)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                    } else {
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                            .foregroundStyle(.white.opacity(0.4))
+                            .overlay {
+                                VStack(spacing: 4) {
+                                    Image(systemName: "photo.on.rectangle.angled").font(.title2)
+                                    Text("見本をドロップ").font(.caption)
+                                }
+                                .foregroundStyle(.white.opacity(0.6))
+                            }
+                    }
+                }
+                .frame(width: 150)
+                .frame(maxHeight: .infinity)
+                Text(model.lookReferenceName.map { "見本: \($0)" } ?? "見本なし")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(width: 150)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { model.chooseLookReference() }
+            .help("クリックで見本の写真を選びます")
+            Divider()
+            if model.settings.lookID != nil {
+                variationStrip
+            } else {
+                VStack(spacing: 6) {
+                    Text("見本の写真の色味に、この写真を近づけます")
+                    Text("JPEG・PNG・HEIC などをここにドロップするか、「見本を選ぶ…」を押してください。\n明るさの分布と、暗部・中間・明部それぞれの色の傾きを見本に合わせます(被写体の色まで写さないよう控えめにかけます)")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .padding(4)
+        .overlay {
+            if lookDropTargeted {
+                RoundedRectangle(cornerRadius: 6).stroke(accent, lineWidth: 2)
+            }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let url = urls.first else { return false }
+            model.setLookReference(url)
+            return true
+        } isTargeted: { lookDropTargeted = $0 }
     }
 
     /// 色ごとの露出: R・G・B の 3 段。それぞれの段で独立に選ぶ
@@ -365,6 +432,25 @@ struct AdjustPanel: View {
                     .help("明るさの分布の両端 0.1% を切って黒と白の点を決めます")
                 Button("レベルをリセット") { model.resetLevels() }
                 Button("カーブをリセット") { model.resetCurve() }
+            } else if model.selectedTab == .look {
+                Button("見本を選ぶ…") { model.chooseLookReference() }
+                if let p = model.selectedTab.param, model.settings.lookID != nil {
+                    Text("強さ").foregroundStyle(.white.opacity(0.7))
+                    Button { model.nudge(-1) } label: { Image(systemName: "minus") }
+                        .help("←キーでも動かせます")
+                    Text(model.currentParamLabel)
+                        .font(.body.monospacedDigit())
+                        .frame(minWidth: 50)
+                    Button { model.nudge(1) } label: { Image(systemName: "plus") }
+                        .help("→キーでも動かせます")
+                    let fine = model.fineTabs.contains(model.selectedTab)
+                    Button(fine ? "粗く選び直す" : "細かく") { model.toggleFine() }
+                    Text(fine ? "細かい段階(\(p.label(p.fineStep)) 刻み)" : "粗い段階")
+                        .font(.caption).foregroundStyle(.white.opacity(0.5))
+                    Button("今の写真で合わせ直す") { model.rematchLook() }
+                        .help("同じ見本で、今の補正の状態から色味を作り直します。露出などを大きく変えたあとに")
+                    Button("色味を外す") { model.removeLook() }
+                }
             } else if let p = model.selectedTab.param {
                 Text(model.selectedTab.title).foregroundStyle(.white.opacity(0.7))
                 Button { model.nudge(-1) } label: { Image(systemName: "minus") }

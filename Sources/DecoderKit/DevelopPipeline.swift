@@ -30,6 +30,10 @@ public struct DevelopSettings: Hashable, Sendable, Codable {
     public var exposureB: Double = 0
     /// 色ごとの調整(8 系統 × 色相・彩度・明度)
     public var colorAdjustments = ColorAdjustments()
+    /// 見本に合わせた色味(LookStore の ID)。nil ならなし
+    public var lookID: String?
+    /// 色味の強さ(%、0〜100)
+    public var lookStrength: Double = 100
 
     public init() {}
 
@@ -177,6 +181,10 @@ public enum DevelopPipeline {
             img = img.applyingFilter("CIColorControls", parameters: [
                 kCIInputSaturationKey: 1 + s.saturation,
             ])
+        }
+        // 見本に合わせた色味(sRGB の 3D LUT)。ほかの補正をすべて終えた見た目に対して作ってあるので最後にかける
+        if let id = s.lookID {
+            img = LookStore.apply(img, id: id, strength: s.lookStrength)
         }
         if s.sharpness > 0 {
             img = img.applyingFilter("CISharpenLuminance", parameters: [
@@ -362,7 +370,7 @@ extension DevelopSettings {
     private enum Keys: String, CodingKey {
         case exposure, temperature, tint, contrast, highlights, shadows, vibrance, saturation, noiseReduction, sharpness
         case levelsBlack, levelsGamma, levelsWhite, curve, highlightRolloff
-        case exposureR, exposureG, exposureB, colorAdjustments
+        case exposureR, exposureG, exposureB, colorAdjustments, lookID, lookStrength
     }
 
     /// 後から足した項目は既定値なら書かない(既存バージョンの内容ハッシュが変わって
@@ -388,6 +396,10 @@ extension DevelopSettings {
         if exposureG != 0 { try c.encode(exposureG, forKey: .exposureG) }
         if exposureB != 0 { try c.encode(exposureB, forKey: .exposureB) }
         if !colorAdjustments.isZero { try c.encode(colorAdjustments, forKey: .colorAdjustments) }
+        if let lookID {
+            try c.encode(lookID, forKey: .lookID)
+            try c.encode(lookStrength, forKey: .lookStrength)
+        }
     }
 
     public init(from decoder: Decoder) throws {
@@ -412,6 +424,8 @@ extension DevelopSettings {
         exposureG = try c.decodeIfPresent(Double.self, forKey: .exposureG) ?? 0
         exposureB = try c.decodeIfPresent(Double.self, forKey: .exposureB) ?? 0
         colorAdjustments = try c.decodeIfPresent(ColorAdjustments.self, forKey: .colorAdjustments) ?? ColorAdjustments()
+        lookID = try c.decodeIfPresent(String.self, forKey: .lookID)
+        lookStrength = try c.decodeIfPresent(Double.self, forKey: .lookStrength) ?? 100
     }
 }
 

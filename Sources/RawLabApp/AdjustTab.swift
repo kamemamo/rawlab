@@ -3,7 +3,7 @@ import Foundation
 
 /// 下のパネルのタブ。補正項目 + デコーダー
 enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
-    case exposure, whiteBalance, channelExposure, hsl, contrast, highlights, rolloff, shadows, tone, vibrance, saturation
+    case exposure, whiteBalance, channelExposure, hsl, contrast, highlights, rolloff, shadows, tone, vibrance, saturation, look
     case noiseReduction, sharpness
     case decoder
 
@@ -22,6 +22,7 @@ enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
         case .tone: "レベル・カーブ"
         case .vibrance: "自然な彩度"
         case .saturation: "彩度"
+        case .look: "色味"
         case .noiseReduction: "ノイズ低減"
         case .sharpness: "シャープ"
         case .decoder: "デコーダー"
@@ -63,6 +64,7 @@ enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
         case .shadows: AdjustParam(\.shadows, -1...1, coarse: 0.2, fine: 0.04, format: "%+.2f")
         case .vibrance: AdjustParam(\.vibrance, -1...1, coarse: 0.2, fine: 0.04, format: "%+.2f")
         case .saturation: AdjustParam(\.saturation, -1...1, coarse: 0.2, fine: 0.04, format: "%+.2f")
+        case .look: AdjustParam(\.lookStrength, 0...100, coarse: 10, fine: 2, format: "%.0f%%")
         case .noiseReduction: AdjustParam(\.noiseReduction, 0...1, coarse: 0.1, fine: 0.02, format: "%.2f", usesCrop: true)
         case .sharpness: AdjustParam(\.sharpness, 0...1, coarse: 0.1, fine: 0.02, format: "%.2f", usesCrop: true)
         case .whiteBalance, .channelExposure, .hsl, .tone, .decoder: nil

@@ -201,6 +201,7 @@ func compare(_ o: Options) throws {
 
 func library(_ args: ArraySlice<String>) throws {
     let catalog = try Catalog()
+    LookStore.directory = catalog.libraryURL.appendingPathComponent("Looks")
     let sub = args.first ?? ""
     let rest = args.dropFirst()
     switch sub {
