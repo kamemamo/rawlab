@@ -8,7 +8,7 @@ let rawlerLib = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 
 let package = Package(
     name: "RawLab",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("27.0")],  // Homebrew の LibRaw がこの macOS 向けにビルドされているので合わせる
     products: [
         .library(name: "DecoderKit", targets: ["DecoderKit"]),
         .library(name: "LibraryKit", targets: ["LibraryKit"]),
