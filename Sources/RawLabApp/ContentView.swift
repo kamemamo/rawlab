@@ -13,7 +13,10 @@ struct ContentView: View {
         } content: {
             photoList
         } detail: {
-            PreviewArea(model: model)
+            VStack(spacing: 0) {
+                PreviewArea(model: model)
+                AdjustPanel(model: model)
+            }
                 .inspector(isPresented: $showInspector) {
                     InspectorView(model: model)
                         .inspectorColumnWidth(min: 280, ideal: 320, max: 420)
@@ -23,7 +26,6 @@ struct ContentView: View {
         .navigationSubtitle(model.selectedPhoto?.metadata?.summary ?? "")
         .toolbar {
             ToolbarItemGroup {
-                Toggle(isOn: $model.compareEnabled) { Label("比較", systemImage: "rectangle.split.2x1") }
                 Button { model.export() } label: { Label("書き出し", systemImage: "square.and.arrow.up") }
                     .disabled(model.selectedPhoto?.isMissing ?? true)
                 Button { showInspector.toggle() } label: { Label("調整", systemImage: "slider.horizontal.3") }
@@ -159,46 +161,5 @@ private struct Badge: View {
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
         .background(tint.opacity(0.75), in: Capsule())
-    }
-}
-
-struct PreviewArea: View {
-    let model: AppModel
-
-    var body: some View {
-        ZStack {
-            Color(white: 0.12).ignoresSafeArea()
-            if let photo = model.selectedPhoto, photo.isMissing {
-                ContentUnavailableView {
-                    Label("RAW が見つかりません", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text("元の場所: \(photo.path)\nフォルダを戻すか、移動先のフォルダをライブラリに追加して再スキャンすると、現像データを引き継いでつなぎ直します。")
-                }
-                .foregroundStyle(.white)
-            } else if model.previews.isEmpty {
-                if model.isDecoding {
-                    ProgressView("デコード中…").controlSize(.large).foregroundStyle(.white)
-                }
-            } else {
-                HStack(spacing: 8) {
-                    ForEach(Array(model.previews.enumerated()), id: \.offset) { _, preview in
-                        VStack(spacing: 6) {
-                            Image(decorative: preview.image, scale: 1)
-                                .resizable()
-                                .scaledToFit()
-                            if model.previews.count > 1 || preview.decoderID != model.decoderID {
-                                Text("\(model.displayName(for: preview.decoderID))  ·  \(String(format: "%.2fs", preview.time))")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.white.opacity(0.8))
-                            }
-                        }
-                    }
-                }
-                .padding(12)
-                .overlay(alignment: .topTrailing) {
-                    if model.isDecoding { ProgressView().controlSize(.small).padding(16) }
-                }
-            }
-        }
     }
 }

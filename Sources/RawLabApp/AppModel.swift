@@ -4,17 +4,33 @@ import DecoderKit
 import LibraryKit
 import Observation
 
-struct Preview {
+/// 下のパネルに並べる 1 枚
+struct Variation: Identifiable {
+    let id: Int
+    let value: Double
+    let label: String
     let image: CGImage
+    let isCurrent: Bool
+}
+
+struct DecoderVariation: Identifiable {
+    var id: String { decoderID }
     let decoderID: String
-    /// デコード + プレビュー用ビットマップ確定までの時間
+    let name: String
+    let time: TimeInterval
+    let image: CGImage
+}
+
+/// デコード結果をプレビュー用(長辺 2400)とサムネイル用(長辺 400)のビットマップに確定したもの
+private struct DecodedBase: @unchecked Sendable {
+    let decoderID: String
+    let image: CIImage
+    let small: CIImage
     let time: TimeInterval
 }
 
-private struct PreviewBase: @unchecked Sendable {
-    let decoderID: String
+private struct ImageBox: @unchecked Sendable {
     let image: CIImage
-    let time: TimeInterval
 }
 
 enum SidebarItem: Hashable {
@@ -57,12 +73,37 @@ final class AppModel {
         didSet { if oldValue != decodeOptions { decodeSettingsChanged() } }
     }
     var settings = DevelopSettings() {
-        didSet { if oldValue != settings { rerender(); scheduleSave() } }
+        didSet {
+            if oldValue != settings {
+                rerender()
+                refreshVariations()
+                scheduleSave()
+            }
+        }
     }
 
-    // 比較(表示だけの設定なので保存しない)
-    var compareEnabled = false { didSet { if oldValue != compareEnabled { redecode() } } }
-    var compareDecoderID = "coreimage" { didSet { if compareEnabled, oldValue != compareDecoderID { redecode() } } }
+    // 下のパネル
+    var selectedTab: AdjustTab = .exposure {
+        didSet {
+            guard oldValue != selectedTab else { return }
+            hoverSettings = nil
+            hoverDecoderID = nil
+            variations = []  // 前のタブのサムネイルを残さない
+            refreshVariations()
+        }
+    }
+    /// 細かい段階で表示中のタブ
+    var fineTabs: Set<AdjustTab> = []
+    var variations: [Variation] = []
+    var decoderVariations: [DecoderVariation] = []
+    var isLoadingVariations = false
+    /// 等倍で切り出す場所(画像に対する割合、左上原点)
+    var cropCenter = CGPoint(x: 0.5, y: 0.5)
+    static let cropSide: CGFloat = 220
+
+    // マウスを乗せている間だけ大画面に反映する値
+    private var hoverSettings: DevelopSettings?
+    private var hoverDecoderID: String?
 
     // 書き出し
     var exportFormat = ExportFormat.jpeg
@@ -70,14 +111,25 @@ final class AppModel {
     var isExporting = false
 
     // 表示
-    var previews: [Preview] = []
+    var preview: CGImage?
+    var previewDecoderID: String?
+    var previewTime: TimeInterval = 0
     var isDecoding = false
     var status = ""
 
-    private static let previewMaxPixel: CGFloat = 2400
-    private var bases: [PreviewBase] = []
+    private var base: DecodedBase?
+    /// デコーダーごとのプレビュー(デコーダータブ用・切り替えを速くする)。写真とデコード設定が変わったら捨てる
+    private var decoderBases: [String: DecodedBase] = [:]
+    private var decoderBasesKey = ""
+    /// 等倍切り出し用のフル解像度画像
+    private var fullImage: ImageBox?
+    private var fullImageKey = ""
+    private var cropBase: ImageBox?
+    private var cropTask: Task<Void, Never>?
     private var decodeTask: Task<Void, Never>?
     private var renderTask: Task<Void, Never>?
+    private var variationTask: Task<Void, Never>?
+    private var decoderTask: Task<Void, Never>?
     private var saveTask: Task<Void, Never>?
     private var loadingVersion = false
 
@@ -183,14 +235,16 @@ final class AppModel {
         if let thumb { thumbnails[photo.id] = thumb }
     }
 
-
     // MARK: - 選択とバージョン
 
     private func photoSelectionChanged() {
         flushSave()
-        previews = []
-        bases = []
+        preview = nil
+        base = nil
+        variations = []
+        decoderVariations = []
         versions = []
+        cropCenter = CGPoint(x: 0.5, y: 0.5)
         guard let photo = selectedPhoto else {
             currentVersionID = nil
             return
@@ -307,72 +361,294 @@ final class AppModel {
         settings = DevelopSettings()
     }
 
+    // MARK: - 下のパネルの操作
+
+    /// サムネイルをクリック。粗い段階で選んだら細かい段階に切り替える
+    func pick(_ value: Double) {
+        guard let p = selectedTab.param else { return }
+        hoverSettings = nil
+        fineTabs.insert(selectedTab)
+        var s = settings
+        s[keyPath: p.keyPath] = p.clamp(value)
+        if s == settings { refreshVariations() } else { settings = s }
+    }
+
+    /// ← → / − + で細かい刻みずつ動かす
+    func nudge(_ direction: Int) {
+        guard let p = selectedTab.param else { return }
+        settings[keyPath: p.keyPath] = p.clamp(settings[keyPath: p.keyPath] + Double(direction) * p.fineStep)
+    }
+
+    func resetCurrentParam() {
+        guard let p = selectedTab.param else { return }
+        settings[keyPath: p.keyPath] = p.clamp(0)
+    }
+
+    func toggleFine() {
+        if fineTabs.contains(selectedTab) {
+            fineTabs.remove(selectedTab)
+        } else {
+            fineTabs.insert(selectedTab)
+        }
+        refreshVariations()
+    }
+
+    var currentParamLabel: String {
+        guard let p = selectedTab.param else { return "" }
+        return p.label(settings[keyPath: p.keyPath])
+    }
+
+    /// サムネイルにマウスを乗せている間、大画面をその値で表示
+    func hover(_ value: Double?) {
+        guard let p = selectedTab.param else { return }
+        if let value {
+            var s = settings
+            s[keyPath: p.keyPath] = value
+            hoverSettings = s
+        } else {
+            hoverSettings = nil
+        }
+        rerender()
+    }
+
+    func hoverDecoder(_ id: String?) {
+        hoverDecoderID = id
+        rerender()
+    }
+
+    func pickDecoder(_ id: String) {
+        hoverDecoderID = nil
+        decoderID = id
+    }
+
+    /// 大画面をクリックして等倍で見る場所を決める
+    func setCropCenter(_ point: CGPoint) {
+        cropCenter = CGPoint(x: min(max(point.x, 0), 1), y: min(max(point.y, 0), 1))
+        cropBase = nil
+        refreshVariations()
+    }
+
+    /// 大画面上の切り出し枠の幅(画像幅に対する割合)
+    var cropFraction: CGFloat {
+        let width = CGFloat(selectedPhoto?.metadata?.width ?? 0)
+        return Self.cropSide / (width > 0 ? width : 5568)
+    }
+
     // MARK: - デコードと描画
 
-    /// RAW を読み直す(デコーダー・デコードオプション・比較の変更時)
+    private var optionsKey: String {
+        "\(selectedPhotoID ?? 0)-\(decodeOptions.hashValue)"
+    }
+
+    /// RAW を読み直す(写真・デコーダー・デコード設定の変更時)
     func redecode() {
         guard !loadingVersion, let photo = selectedPhoto else { return }
         decodeTask?.cancel()
+        cropTask?.cancel()
+        cropTask = nil
+        cropBase = nil
         if photo.isMissing {
-            previews = []
-            bases = []
+            preview = nil
+            base = nil
+            variations = []
             isDecoding = false
             status = "RAW が見つかりません: \(photo.path)"
             return
         }
+        if decoderBasesKey != optionsKey {
+            decoderBases = [:]
+            decoderBasesKey = optionsKey
+        }
+        // デコーダータブで一度読んだものは使い回す
+        if let cached = decoderBases[decoderID] {
+            setBase(cached)
+            return
+        }
         isDecoding = true
         let url = photo.url
-        let ids = compareEnabled ? [decoderID, compareDecoderID] : [decoderID]
-        var options = decodeOptions
-        options.halfSize = true  // プレビューは半分サイズで十分
-        let maxPixel = Self.previewMaxPixel
+        let id = decoderID
+        let options = decodeOptions
+        let key = optionsKey
 
         decodeTask = Task {
             // スライダー連打で何度もデコードしないよう少し待つ
-            try? await Task.sleep(for: .milliseconds(200))
+            try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled else { return }
-
-            var results: [PreviewBase] = []
-            var errors: [String] = []
-            for id in ids {
-                let result = await Task.detached(priority: .userInitiated) { () -> Result<PreviewBase, Error> in
-                    Result {
-                        let start = Date()
-                        let decoded = try DecoderRegistry.decode(url, preferred: id, options: options)
-                        guard let base = DevelopPipeline.materialize(decoded.image, maxPixel: maxPixel)
-                        else { throw DecoderError.failed("プレビュー作成に失敗") }
-                        return PreviewBase(decoderID: decoded.decoderID, image: base,
-                                           time: Date().timeIntervalSince(start))
-                    }
-                }.value
-                guard !Task.isCancelled else { return }
-                switch result {
-                case .success(let base): results.append(base)
-                case .failure(let error): errors.append(error.localizedDescription)
-                }
-            }
-            bases = results
+            let result = await Task.detached(priority: .userInitiated) {
+                Result { try Self.makeBase(url: url, decoderID: id, options: options) }
+            }.value
+            guard !Task.isCancelled, key == optionsKey else { return }
             isDecoding = false
-            if !errors.isEmpty { status = errors.joined(separator: "\n") }
-            rerender()
+            switch result {
+            case .success(let b):
+                decoderBases[id] = b
+                setBase(b)
+            case .failure(let error):
+                status = error.localizedDescription
+            }
         }
     }
 
-    /// 現像設定だけ変わったとき。確定済みのビットマップに当てるので速い
+    private func setBase(_ b: DecodedBase) {
+        base = b
+        previewDecoderID = b.decoderID
+        previewTime = b.time
+        rerender()
+        refreshVariations()
+    }
+
+    nonisolated private static func makeBase(url: URL, decoderID: String, options: DecodeOptions) throws -> DecodedBase {
+        let start = Date()
+        var o = options
+        o.halfSize = true  // プレビューは半分サイズで十分
+        let decoded = try DecoderRegistry.decode(url, preferred: decoderID, options: o)
+        guard let big = DevelopPipeline.materialize(decoded.image, maxPixel: 2400),
+              let small = DevelopPipeline.materialize(big, maxPixel: 400)
+        else { throw DecoderError.failed("プレビュー作成に失敗") }
+        return DecodedBase(decoderID: decoded.decoderID, image: big, small: small,
+                           time: Date().timeIntervalSince(start))
+    }
+
+    /// 大画面を描き直す。確定済みのビットマップに当てるので速い
     func rerender() {
         renderTask?.cancel()
-        let bases = self.bases
-        let settings = self.settings
+        guard let b = hoverDecoderID.flatMap({ decoderBases[$0] }) ?? base else { return }
+        let box = ImageBox(image: b.image)
+        let settings = hoverSettings ?? self.settings
         renderTask = Task {
-            let rendered = await Task.detached(priority: .userInitiated) { () -> [Preview] in
-                bases.compactMap { base in
-                    let output = DevelopPipeline.apply(settings, to: base.image)
-                    guard let cg = DevelopPipeline.renderCGImage(output) else { return nil }
-                    return Preview(image: cg, decoderID: base.decoderID, time: base.time)
+            let cg = await Task.detached(priority: .userInitiated) {
+                DevelopPipeline.renderCGImage(DevelopPipeline.apply(settings, to: box.image))
+            }.value
+            guard !Task.isCancelled, let cg else { return }
+            preview = cg
+        }
+    }
+
+    /// 下のパネルのサムネイルを作り直す
+    func refreshVariations() {
+        guard !loadingVersion, base != nil else { return }
+        if selectedTab == .decoder {
+            loadDecoderVariations()
+            return
+        }
+        guard let p = selectedTab.param, let base else { return }
+        let source: CIImage
+        if p.usesCrop {
+            guard let crop = cropBase else {
+                loadCrop()
+                return
+            }
+            source = crop.image
+        } else {
+            source = base.small
+        }
+
+        variationTask?.cancel()
+        let settings = self.settings
+        let current = settings[keyPath: p.keyPath]
+        let values = fineTabs.contains(selectedTab) ? p.fineValues(around: current) : p.coarseValues
+        let box = ImageBox(image: source)
+        variationTask = Task {
+            try? await Task.sleep(for: .milliseconds(20))
+            guard !Task.isCancelled else { return }
+            let result = await Task.detached(priority: .userInitiated) { () -> [Variation] in
+                values.enumerated().compactMap { i, v in
+                    var s = settings
+                    s[keyPath: p.keyPath] = v
+                    guard let cg = DevelopPipeline.renderCGImage(DevelopPipeline.apply(s, to: box.image)) else { return nil }
+                    return Variation(id: i, value: v, label: p.label(v), image: cg,
+                                     isCurrent: abs(v - current) < p.fineStep / 2)
                 }
             }.value
             guard !Task.isCancelled else { return }
-            previews = rendered
+            variations = result
+        }
+    }
+
+    /// 等倍切り出し用にフル解像度でデコードして、指定位置を切り出す
+    private func loadCrop() {
+        guard cropTask == nil, let photo = selectedPhoto else { return }
+        isLoadingVariations = true
+        let url = photo.url
+        let id = decoderID
+        var options = decodeOptions
+        options.halfSize = false
+        let center = cropCenter
+        let key = "\(optionsKey)-\(id)"
+        let cachedFull = fullImageKey == key ? fullImage : nil
+        let side = Self.cropSide
+
+        cropTask = Task {
+            let result = await Task.detached(priority: .userInitiated) { () -> (ImageBox, ImageBox)? in
+                let full: CIImage
+                if let cachedFull {
+                    full = cachedFull.image
+                } else {
+                    guard let d = try? DecoderRegistry.decode(url, preferred: id, options: options) else { return nil }
+                    full = d.image
+                }
+                let e = full.extent
+                let cx = e.minX + center.x * e.width
+                let cy = e.maxY - center.y * e.height  // Core Image は左下原点
+                let x = min(max(cx - side / 2, e.minX), e.maxX - side)
+                let y = min(max(cy - side / 2, e.minY), e.maxY - side)
+                let crop = full.cropped(to: CGRect(x: x, y: y, width: side, height: side).integral)
+                let moved = crop.transformed(by: .init(translationX: -crop.extent.minX, y: -crop.extent.minY))
+                guard let fixed = DevelopPipeline.materialize(moved, maxPixel: 10_000) else { return nil }
+                return (ImageBox(image: full), ImageBox(image: fixed))
+            }.value
+            cropTask = nil
+            isLoadingVariations = false
+            guard !Task.isCancelled, let result, key == "\(optionsKey)-\(decoderID)" else { return }
+            fullImage = result.0
+            fullImageKey = key
+            if center == cropCenter {
+                cropBase = result.1
+            }
+            refreshVariations()
+        }
+    }
+
+    /// 全デコーダーで読んで並べる(読んだものは切り替え用にも使い回す)
+    private func loadDecoderVariations() {
+        guard let photo = selectedPhoto, !photo.isMissing else { return }
+        let missing = DecoderRegistry.all.map(\.id).filter { decoderBases[$0] == nil }
+        renderDecoderVariations()
+        guard !missing.isEmpty else { return }
+        decoderTask?.cancel()
+        isLoadingVariations = true
+        let url = photo.url
+        let options = decodeOptions
+        let key = optionsKey
+        decoderTask = Task {
+            for id in missing {
+                let b = await Task.detached(priority: .userInitiated) {
+                    try? Self.makeBase(url: url, decoderID: id, options: options)
+                }.value
+                guard !Task.isCancelled, key == optionsKey else { return }
+                if let b { decoderBases[id] = b }
+                renderDecoderVariations()
+            }
+            isLoadingVariations = false
+        }
+    }
+
+    private func renderDecoderVariations() {
+        variationTask?.cancel()
+        let items = DecoderRegistry.all.compactMap { d in
+            decoderBases[d.id].map { (d.id, d.displayName, $0) }
+        }
+        let settings = self.settings
+        variationTask = Task {
+            let result = await Task.detached(priority: .userInitiated) { () -> [DecoderVariation] in
+                items.compactMap { id, name, b in
+                    guard let cg = DevelopPipeline.renderCGImage(DevelopPipeline.apply(settings, to: b.small))
+                    else { return nil }
+                    return DecoderVariation(decoderID: id, name: name, time: b.time, image: cg)
+                }
+            }.value
+            guard !Task.isCancelled else { return }
+            decoderVariations = result
         }
     }
 

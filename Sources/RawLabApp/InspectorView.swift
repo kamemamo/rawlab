@@ -12,7 +12,6 @@ struct InspectorView: View {
             if model.selectedPhoto != nil {
                 versionSection
                 decoderSection
-                adjustSections
                 infoSection
                 exportSection
             } else {
@@ -54,48 +53,17 @@ struct InspectorView: View {
     }
 
     private var decoderSection: some View {
-        Group {
-            Section("デコーダー") {
-                Picker("デコーダー", selection: $model.decoderID) {
-                    ForEach(DecoderRegistry.all, id: \.id) { Text($0.displayName).tag($0.id) }
-                }
-                Picker("デモザイク", selection: $model.decodeOptions.demosaic) {
-                    ForEach(DemosaicMethod.allCases, id: \.self) { Text($0.rawValue.uppercased()).tag($0) }
-                }
-                .help("LibRaw のみ有効")
-                .disabled(model.decoderID != "libraw" && !(model.compareEnabled && model.compareDecoderID == "libraw"))
-                ValueSlider("デコーダー NR", value: $model.decodeOptions.noiseReduction, in: 0...1)
-                    .help("Core Image / LibRaw のみ有効")
-                Toggle("撮影時の WB を使う", isOn: $model.decodeOptions.applyAsShotWB)
+        Section("デコード設定") {
+            LabeledContent("デコーダー", value: model.displayName(for: model.decoderID))
+                .help("下の「デコーダー」タブで見比べて切り替えられます")
+            Picker("デモザイク", selection: $model.decodeOptions.demosaic) {
+                ForEach(DemosaicMethod.allCases, id: \.self) { Text($0.rawValue.uppercased()).tag($0) }
             }
-            Section("比較") {
-                Toggle("2 つのデコーダーを並べる", isOn: $model.compareEnabled)
-                if model.compareEnabled {
-                    Picker("比較相手", selection: $model.compareDecoderID) {
-                        ForEach(DecoderRegistry.all, id: \.id) { Text($0.displayName).tag($0.id) }
-                    }
-                }
-            }
-        }
-    }
-
-    private var adjustSections: some View {
-        Group {
-            Section("基本補正") {
-                ValueSlider("露出", value: $model.settings.exposure, in: -3...3, format: "%+.2f EV")
-                ValueSlider("色温度", value: $model.settings.temperature, in: -2000...2000, format: "%+.0f K")
-                ValueSlider("色かぶり", value: $model.settings.tint, in: -100...100, format: "%+.0f")
-                ValueSlider("コントラスト", value: $model.settings.contrast, in: -1...1)
-                ValueSlider("ハイライト復元", value: $model.settings.highlights, in: 0...1)
-                ValueSlider("シャドウ", value: $model.settings.shadows, in: -1...1)
-                ValueSlider("自然な彩度", value: $model.settings.vibrance, in: -1...1)
-                ValueSlider("彩度", value: $model.settings.saturation, in: -1...1)
-            }
-            Section("ディテール") {
-                ValueSlider("ノイズ低減", value: $model.settings.noiseReduction, in: 0...1)
-                ValueSlider("シャープ", value: $model.settings.sharpness, in: 0...1)
-                Button("補正をリセット") { model.resetSettings() }
-            }
+            .help("LibRaw のみ有効")
+            .disabled(model.decoderID != "libraw")
+            ValueSlider("デコーダー NR", value: $model.decodeOptions.noiseReduction, in: 0...1)
+                .help("Core Image / LibRaw のみ有効")
+            Toggle("撮影時の WB を使う", isOn: $model.decodeOptions.applyAsShotWB)
         }
     }
 
