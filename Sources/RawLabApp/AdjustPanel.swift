@@ -19,12 +19,12 @@ struct AdjustPanel: View {
                 } else if model.selectedTab.grid != nil {
                     wbGrid
                 } else if model.selectedTab == .tone {
-                    // 左にトーンカーブ、右にレベル補正
+                    // タブ名・下のボタンと同じ順に、左にレベル補正、右にトーンカーブ
                     HStack(alignment: .top, spacing: 14) {
+                        LevelsEditor(model: model)
+                        Divider()
                         CurveEditor(model: model)
                             .frame(width: CurveEditor.width(height: 190))
-                        Divider()
-                        LevelsEditor(model: model)
                     }
                 } else {
                     variationStrip
