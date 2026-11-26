@@ -28,6 +28,8 @@ public struct DevelopSettings: Hashable, Sendable, Codable {
     public var exposureR: Double = 0
     public var exposureG: Double = 0
     public var exposureB: Double = 0
+    /// 色ごとの調整(8 系統 × 色相・彩度・明度)
+    public var colorAdjustments = ColorAdjustments()
 
     public init() {}
 
@@ -164,6 +166,10 @@ public enum DevelopPipeline {
             ])
         }
 
+        // 色ごとの調整(OKLCH で計算した 3 次元の対応表)
+        if !s.colorAdjustments.isZero {
+            img = ColorCube.apply(img, s.colorAdjustments)
+        }
         if s.vibrance != 0 {
             img = img.applyingFilter("CIVibrance", parameters: ["inputAmount": s.vibrance])
         }
@@ -356,7 +362,7 @@ extension DevelopSettings {
     private enum Keys: String, CodingKey {
         case exposure, temperature, tint, contrast, highlights, shadows, vibrance, saturation, noiseReduction, sharpness
         case levelsBlack, levelsGamma, levelsWhite, curve, highlightRolloff
-        case exposureR, exposureG, exposureB
+        case exposureR, exposureG, exposureB, colorAdjustments
     }
 
     /// 後から足した項目は既定値なら書かない(既存バージョンの内容ハッシュが変わって
@@ -381,6 +387,7 @@ extension DevelopSettings {
         if exposureR != 0 { try c.encode(exposureR, forKey: .exposureR) }
         if exposureG != 0 { try c.encode(exposureG, forKey: .exposureG) }
         if exposureB != 0 { try c.encode(exposureB, forKey: .exposureB) }
+        if !colorAdjustments.isZero { try c.encode(colorAdjustments, forKey: .colorAdjustments) }
     }
 
     public init(from decoder: Decoder) throws {
@@ -404,6 +411,7 @@ extension DevelopSettings {
         exposureR = try c.decodeIfPresent(Double.self, forKey: .exposureR) ?? 0
         exposureG = try c.decodeIfPresent(Double.self, forKey: .exposureG) ?? 0
         exposureB = try c.decodeIfPresent(Double.self, forKey: .exposureB) ?? 0
+        colorAdjustments = try c.decodeIfPresent(ColorAdjustments.self, forKey: .colorAdjustments) ?? ColorAdjustments()
     }
 }
 

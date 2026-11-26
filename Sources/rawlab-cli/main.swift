@@ -33,6 +33,7 @@ options:
   --highlight <m>       白飛び: clip(白にする)| reconstruct(色を補って復元。RawLab エンジン / LibRaw)
   --rolloff <n>         ハイライト圧縮 0...1(1 を超えた明るさを丸めて収める)
   --ev-r/--ev-g/--ev-b <n>  色ごとの露出 (EV)
+  --hsl <系統:色相,彩度,明度>  色ごとの調整(何回でも)。例: --hsl blue:0,0.6,-0.4
   --levels <b,g,w>      レベル補正(黒,中間,白。例: 20,1.2,235)
   --curve <x:y,...>     トーンカーブ(0〜255。例: 64:48,192:208)
   --crop <N>            compare: 中央 N×N px を等倍で切り出して比較
@@ -84,6 +85,19 @@ func parse(_ args: ArraySlice<String>) throws -> Options {
             guard let m = HighlightMode(rawValue: v) else { throw DecoderError.failed("--highlight は clip か reconstruct") }
             o.decode.highlight = m
         case "--rolloff": o.develop.highlightRolloff = try number(a)
+        case "--hsl":
+            // 系統:色相,彩度,明度  例: blue:0,0.6,-0.4
+            let v = try value(a)
+            let parts = v.split(separator: ":")
+            guard parts.count == 2,
+                  let range = ColorRange.allCases.first(where: { "\($0)" == parts[0] }) else {
+                throw DecoderError.failed("--hsl は red|orange|yellow|green|aqua|blue|purple|magenta:色相,彩度,明度")
+            }
+            let n = parts[1].split(separator: ",").compactMap { Double($0) }
+            guard n.count == 3 else { throw DecoderError.failed("--hsl の値は 色相,彩度,明度 の 3 つ") }
+            o.develop.colorAdjustments[range].hue = n[0]
+            o.develop.colorAdjustments[range].saturation = n[1]
+            o.develop.colorAdjustments[range].luminance = n[2]
         case "--ev-r": o.develop.exposureR = try number(a)
         case "--ev-g": o.develop.exposureG = try number(a)
         case "--ev-b": o.develop.exposureB = try number(a)

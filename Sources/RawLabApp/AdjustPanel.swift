@@ -18,7 +18,12 @@ struct AdjustPanel: View {
                     decoderStrip
                 } else if model.selectedTab.grid != nil {
                     wbGrid
-                } else if model.selectedTab.channelParams != nil {
+                } else if model.selectedTab == .hsl {
+                    VStack(spacing: 6) {
+                        colorChips
+                        channelRows
+                    }
+                } else if model.rowParams != nil {
                     channelRows
                 } else if model.selectedTab == .tone {
                     // タブ名・下のボタンと同じ順に、左にレベル補正、右にトーンカーブ
@@ -32,8 +37,9 @@ struct AdjustPanel: View {
                     variationStrip
                 }
             }
-            .frame(height: model.selectedTab.grid != nil || model.selectedTab.channelParams != nil
-                   ? 200 : model.selectedTab.isToneEditor ? 190 : 132)
+            .frame(height: model.selectedTab == .hsl ? 236
+                   : model.selectedTab.grid != nil || model.rowParams != nil ? 200
+                   : model.selectedTab.isToneEditor ? 190 : 132)
             .padding(.horizontal, 10)
             .padding(.top, 8)
             controls
@@ -147,15 +153,47 @@ struct AdjustPanel: View {
     }
 
     /// 色ごとの露出: R・G・B の 3 段。それぞれの段で独立に選ぶ
+    /// 色ごとの調整: 8 系統の選択
+    private var colorChips: some View {
+        HStack(spacing: 4) {
+            ForEach(ColorRange.allCases) { r in
+                let sw = r.swatch
+                let selected = model.selectedColorRange == r
+                Button {
+                    model.selectedColorRange = r
+                    focused = true
+                } label: {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(Color(red: sw.r, green: sw.g, blue: sw.b))
+                            .frame(width: 12, height: 12)
+                        Text(r.title).font(.caption)
+                        if !model.settings.colorAdjustments[r].isZero {
+                            Circle().fill(accent).frame(width: 5, height: 5)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(selected ? Color.white.opacity(0.18) : Color.white.opacity(0.05),
+                                in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? accent : .clear, lineWidth: 1.5))
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
     private var channelRows: some View {
-        let colors: [Color] = [.red, .green, .blue]
+        let hsl = model.selectedTab == .hsl
+        let colors: [Color] = hsl ? [.white, .white, .white] : [.red, .green, .blue]
         return VStack(spacing: 0) {
             ForEach(0..<3, id: \.self) { row in
                 HStack(spacing: 0) {
-                    Text(["R", "G", "B"][row])
-                        .font(.callout.bold())
-                        .foregroundStyle(colors[row])
-                        .frame(width: 30)
+                    Text(model.rowTitles[row])
+                        .font(hsl ? .caption.bold() : .callout.bold())
+                        .foregroundStyle(colors[row].opacity(hsl ? 0.8 : 1))
+                        .frame(width: hsl ? 36 : 30)
                     ForEach(model.channelVariations[row]) { v in
                         VStack(spacing: 1) {
                             Image(decorative: v.image, scale: 1)
@@ -275,17 +313,27 @@ struct AdjustPanel: View {
 
     private var controls: some View {
         HStack(spacing: 10) {
-            if model.selectedTab.channelParams != nil {
+            if model.rowParams != nil {
+                let hsl = model.selectedTab == .hsl
+                if hsl {
+                    Text(model.selectedColorRange.title).bold()
+                }
                 ForEach(0..<3, id: \.self) { row in
-                    Text(["R", "G", "B"][row]).foregroundStyle([Color.red, .green, .blue][row])
+                    Text(model.rowTitles[row])
+                        .foregroundStyle(hsl ? Color.white.opacity(0.7) : [Color.red, .green, .blue][row])
                     Button { model.nudgeChannel(row, -1) } label: { Image(systemName: "minus") }
                     Text(model.channelLabel(row)).font(.body.monospacedDigit()).frame(minWidth: 44)
                     Button { model.nudgeChannel(row, 1) } label: { Image(systemName: "plus") }
                 }
                 let fine = model.fineTabs.contains(model.selectedTab)
                 Button(fine ? "粗く選び直す" : "細かく") { model.toggleFine() }
-                Button("0 に戻す") { model.resetCurrentParam() }
-                    .help("R・G・B すべてを 0 に戻す(単位は EV)")
+                Button(hsl ? "この色を 0 に" : "0 に戻す") { model.resetCurrentParam() }
+                    .help(hsl ? "選んでいる系統の 色相・彩度・明度 を 0 に戻す" : "R・G・B すべてを 0 に戻す(単位は EV)")
+                if hsl {
+                    Button("全色を 0 に") { model.resetAllColors() }
+                    Text("大画面をクリックすると、その色の系統を選びます")
+                        .font(.caption).foregroundStyle(.white.opacity(0.5))
+                }
             } else if let g = model.selectedTab.grid {
                 Text("色温度").foregroundStyle(.white.opacity(0.7))
                 Button { model.nudge(-1) } label: { Image(systemName: "minus") }.help("←キーでも動かせます")
@@ -387,6 +435,7 @@ struct PreviewArea: View {
                         if model.compareMode == .before { badge("補正前").padding(8) }
                     }
                     .overlay { loupeOverlay }
+                    .overlay { colorPickOverlay }
                     .overlay { cropOverlay }
                     .overlay { eyedropperOverlay }
                     .padding(12)
@@ -498,6 +547,27 @@ struct PreviewArea: View {
                         .allowsHitTesting(false)
                     }
                 }
+            }
+        }
+    }
+
+    /// 色ごとの調整のタブ: 大画面をクリックすると、その場所の色の系統を選ぶ
+    @ViewBuilder
+    private var colorPickOverlay: some View {
+        if model.selectedTab == .hsl && !model.isEyedropperActive && !model.loupeEnabled {
+            GeometryReader { geo in
+                Color.black.opacity(0.001)
+                    .contentShape(Rectangle())
+                    .onTapGesture { location in
+                        model.pickColorRange(at: CGPoint(x: location.x / geo.size.width,
+                                                         y: location.y / geo.size.height))
+                    }
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active: NSCursor.crosshair.set()
+                        case .ended: NSCursor.arrow.set()
+                        }
+                    }
             }
         }
     }

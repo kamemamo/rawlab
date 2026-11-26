@@ -77,6 +77,7 @@ VERSION=0.1.0 ./scripts/make-dist.sh
 | `Sources/DecoderKit/LibRawDecoder.swift` | LibRaw C API |
 | `Sources/DecoderKit/RawlerDecoder.swift` + `rawler-ffi/` | Rust の rawler(C ABI 経由、PPG デモザイク固定) |
 | `Sources/DecoderKit/RawLabEngineDecoder.swift` | 独自エンジン。LibRaw はモザイクのデータと黒・白レベル・WB・色行列を読むだけで、黒レベル補正 → WB → デモザイク(Malvar-He-Cutler / バイリニア / 半分サイズはスーパーピクセル)→ 色変換は自前。ベイヤー配列のみ(X-Trans は未対応) |
+| `Sources/DecoderKit/ColorAdjust.swift` | 色ごとの調整(8 系統 × 色相・彩度・明度)。OKLCH で計算し、32³ の 3 次元対応表にして 1 回で適用。色の薄い所は守る |
 | `Sources/DecoderKit/HighlightReconstruction.swift` | 白飛びの復元。飽和していない色と、プッシュ・プルで広げた周りの色合いから飽和した色を推定し、白より明るい階調も残す。ハイライト圧縮(`DevelopSettings.highlightRolloff`)と組み合わせて使う |
 | `Sources/DecoderKit/DecoderRegistry.swift` | デコーダー一覧とフォールバック |
 | `Sources/DecoderKit/DevelopPipeline.swift` | 共通の現像処理・書き出し・サムネイル |

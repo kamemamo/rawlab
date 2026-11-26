@@ -119,8 +119,26 @@ final class AppModel {
     var fineTabs: Set<AdjustTab> = []
     var variations: [Variation] = []
     var gridVariations: [GridVariation] = []
-    /// 色ごとの露出の 3 段 [R, G, B]
+    /// 3 段のサムネイル(色ごとの露出は R・G・B、色ごとの調整は 色相・彩度・明度)
     var channelVariations: [[Variation]] = [[], [], []]
+    /// 色ごとの調整で選んでいる系統
+    var selectedColorRange: ColorRange = .blue {
+        didSet {
+            if oldValue != selectedColorRange {
+                channelVariations = [[], [], []]
+                refreshVariations()
+            }
+        }
+    }
+
+    /// 3 段で表示する項目(該当しないタブでは nil)
+    var rowParams: [AdjustParam]? {
+        selectedTab == .hsl ? AdjustTab.hslParams(selectedColorRange) : selectedTab.channelParams
+    }
+
+    var rowTitles: [String] {
+        selectedTab == .hsl ? ["色相", "彩度", "明度"] : ["R", "G", "B"]
+    }
     var gridColumns: [Double] = []
     var gridRows: [Double] = []
     var decoderVariations: [DecoderVariation] = []
@@ -445,9 +463,42 @@ final class AppModel {
         if s == settings { refreshVariations() } else { settings = s }
     }
 
+    /// 色ごとの調整: 全系統を 0 に戻す
+    func resetAllColors() {
+        settings.colorAdjustments = ColorAdjustments()
+    }
+
+    /// 大画面をクリック: その点の色の系統を選ぶ(色の薄い所では変えない)
+    func pickColorRange(at point: CGPoint) {
+        guard let image = preview else { return }
+        let x = min(max(Int(point.x * CGFloat(image.width)), 0), image.width - 1)
+        let y = min(max(Int(point.y * CGFloat(image.height)), 0), image.height - 1)
+        // 5×5 の平均を sRGB で取り出す
+        let size = 5
+        var px = [UInt8](repeating: 0, count: size * size * 4)
+        let rect = CGRect(x: max(x - 2, 0), y: max(y - 2, 0), width: size, height: size)
+        guard let crop = image.cropping(to: rect),
+              let ctx = CGContext(data: &px, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size * 4,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+        ctx.draw(crop, in: CGRect(x: 0, y: 0, width: size, height: size))
+        var r = 0.0, g = 0.0, b = 0.0
+        for i in 0..<(size * size) {
+            r += Double(px[i * 4]); g += Double(px[i * 4 + 1]); b += Double(px[i * 4 + 2])
+        }
+        let n = Double(size * size) * 255
+        let lch = OKLab.lch(fromSRGB: r / n, g / n, b / n)
+        guard lch.C > 0.02 else {
+            status = "色の薄い所(白・灰色・黒)なので系統は変えませんでした"
+            return
+        }
+        selectedColorRange = ColorRange.nearest(hueDegrees: lch.h)
+        status = "クリックした所の色: \(selectedColorRange.title)"
+    }
+
     /// 色ごとの露出の段をクリック
     func pickChannel(_ row: Int, _ value: Double) {
-        guard let ps = selectedTab.channelParams else { return }
+        guard let ps = rowParams else { return }
         hoverSettings = nil
         fineTabs.insert(selectedTab)
         var s = settings
@@ -456,19 +507,19 @@ final class AppModel {
     }
 
     func hoverChannel(_ row: Int, _ value: Double, inside: Bool) {
-        guard let ps = selectedTab.channelParams else { return }
+        guard let ps = rowParams else { return }
         var s = settings
         s[keyPath: ps[row].keyPath] = value
         setHover(s, inside: inside)
     }
 
     func nudgeChannel(_ row: Int, _ direction: Int) {
-        guard let p = selectedTab.channelParams?[row] else { return }
+        guard let p = rowParams?[row] else { return }
         settings[keyPath: p.keyPath] = p.clamp(settings[keyPath: p.keyPath] + Double(direction) * p.fineStep)
     }
 
     func channelLabel(_ row: Int) -> String {
-        guard let p = selectedTab.channelParams?[row] else { return "" }
+        guard let p = rowParams?[row] else { return "" }
         return p.label(settings[keyPath: p.keyPath])
     }
 
@@ -504,7 +555,7 @@ final class AppModel {
     }
 
     func resetCurrentParam() {
-        if let ps = selectedTab.channelParams {
+        if let ps = rowParams {
             var s = settings
             for p in ps { s[keyPath: p.keyPath] = 0 }
             settings = s
@@ -764,7 +815,7 @@ final class AppModel {
             renderToneHistogram(source: base.small)
             return
         }
-        if let ps = selectedTab.channelParams, let base {
+        if let ps = rowParams, let base {
             renderChannelRows(ps, source: base.small)
             return
         }
