@@ -72,7 +72,7 @@ struct ContentView: View {
                 }
             }
         }
-        .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+        .navigationSplitViewColumnWidth(min: 120, ideal: 150, max: 240)
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Button { model.addFolder() } label: { Label("フォルダを追加", systemImage: "plus") }
@@ -91,7 +91,7 @@ struct ContentView: View {
             PhotoRow(photo: photo, image: model.thumbnails[photo.id], state: model.exportStates[photo.id])
                 .task(id: photo.id) { await model.loadThumbnail(for: photo) }
         }
-        .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+        .navigationSplitViewColumnWidth(min: 100, ideal: 130, max: 260)
         .overlay {
             if model.photos.isEmpty {
                 if model.isScanning {

@@ -3,7 +3,7 @@ import Foundation
 
 /// 下のパネルのタブ。補正項目 + デコーダー
 enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
-    case exposure, whiteBalance, contrast, highlights, shadows, levels, curve, vibrance, saturation
+    case exposure, whiteBalance, contrast, highlights, shadows, tone, vibrance, saturation
     case noiseReduction, sharpness
     case decoder
 
@@ -16,8 +16,7 @@ enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
         case .contrast: "コントラスト"
         case .highlights: "ハイライト"
         case .shadows: "シャドウ"
-        case .levels: "レベル補正"
-        case .curve: "トーンカーブ"
+        case .tone: "レベル・カーブ"
         case .vibrance: "自然な彩度"
         case .saturation: "彩度"
         case .noiseReduction: "ノイズ低減"
@@ -33,8 +32,8 @@ enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
                 AdjustParam(\.tint, -60...60, coarse: 12, fine: 4, format: "%+.0f", count: 3))
     }
 
-    /// レベル補正・トーンカーブはサムネイルではなく専用の編集画面
-    var isToneEditor: Bool { self == .levels || self == .curve }
+    /// レベル補正・トーンカーブはサムネイルではなく専用の編集画面(1 つのタブに並べる)
+    var isToneEditor: Bool { self == .tone }
 
     /// デコーダー・ホワイトバランス・レベル補正・トーンカーブは nil
     var param: AdjustParam? {
@@ -47,7 +46,7 @@ enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
         case .saturation: AdjustParam(\.saturation, -1...1, coarse: 0.2, fine: 0.04, format: "%+.2f")
         case .noiseReduction: AdjustParam(\.noiseReduction, 0...1, coarse: 0.1, fine: 0.02, format: "%.2f", usesCrop: true)
         case .sharpness: AdjustParam(\.sharpness, 0...1, coarse: 0.1, fine: 0.02, format: "%.2f", usesCrop: true)
-        case .whiteBalance, .levels, .curve, .decoder: nil
+        case .whiteBalance, .tone, .decoder: nil
         }
     }
 }

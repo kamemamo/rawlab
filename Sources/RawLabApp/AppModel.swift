@@ -894,16 +894,16 @@ final class AppModel {
         settings = s
     }
 
-    func resetTone() {
+    func resetLevels() {
         var s = settings
-        if selectedTab == .levels {
-            s.levelsBlack = 0
-            s.levelsGamma = 1
-            s.levelsWhite = 1
-        } else {
-            s.curve = []
-        }
+        s.levelsBlack = 0
+        s.levelsGamma = 1
+        s.levelsWhite = 1
         settings = s
+    }
+
+    func resetCurve() {
+        settings.curve = []
     }
 
     /// 直線と同じなら空にする(保存内容を増やさない)

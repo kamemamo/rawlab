@@ -18,10 +18,14 @@ struct AdjustPanel: View {
                     decoderStrip
                 } else if model.selectedTab.grid != nil {
                     wbGrid
-                } else if model.selectedTab == .levels {
-                    LevelsEditor(model: model)
-                } else if model.selectedTab == .curve {
-                    CurveEditor(model: model)
+                } else if model.selectedTab == .tone {
+                    // 左にトーンカーブ、右にレベル補正
+                    HStack(alignment: .top, spacing: 14) {
+                        CurveEditor(model: model)
+                            .frame(width: CurveEditor.width(height: 190))
+                        Divider()
+                        LevelsEditor(model: model)
+                    }
                 } else {
                     variationStrip
                 }
@@ -243,17 +247,15 @@ struct AdjustPanel: View {
                 }
                 .buttonStyle(.plain)
                 .help("押してから、大きな画面の白やグレーの部分をクリック(esc で中止)。色温度 + で暖かく、色かぶり + でマゼンタ寄り")
-            } else if model.selectedTab == .levels {
+            } else if model.selectedTab == .tone {
                 let s = model.settings
                 Text(String(format: "黒 %d   中間 %.2f   白 %d",
                             Int(s.levelsBlack * 255), s.levelsGamma, Int(s.levelsWhite * 255)))
                     .font(.body.monospacedDigit())
                 Button("自動") { model.autoLevels() }
                     .help("明るさの分布の両端 0.1% を切って黒と白の点を決めます")
-                Button("リセット") { model.resetTone() }
-                Text("三角をドラッグ(黒・中間・白)").font(.caption).foregroundStyle(.white.opacity(0.5))
-            } else if model.selectedTab == .curve {
-                Button("リセット") { model.resetTone() }
+                Button("レベルをリセット") { model.resetLevels() }
+                Button("カーブをリセット") { model.resetCurve() }
             } else if let p = model.selectedTab.param {
                 Text(model.selectedTab.title).foregroundStyle(.white.opacity(0.7))
                 Button { model.nudge(-1) } label: { Image(systemName: "minus") }

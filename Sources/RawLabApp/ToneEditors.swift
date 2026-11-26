@@ -92,6 +92,10 @@ private struct Triangle: Shape {
 /// 点をドラッグして調整。何もない所をクリックすると点を追加、点をダブルクリックで削除
 struct CurveEditor: View {
     @Bindable var model: AppModel
+    static let presetsWidth: CGFloat = 220
+
+    /// カーブの正方形 + よく使う形の列の幅
+    static func width(height: CGFloat) -> CGFloat { height + 12 + presetsWidth }
     @State private var dragIndex: Int?
 
     private var points: [CurvePoint] { ToneCurve.normalized(model.settings.curve) }
@@ -99,7 +103,7 @@ struct CurveEditor: View {
     var body: some View {
         GeometryReader { geo in
             let side = geo.size.height
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
                 Canvas { ctx, size in
                     ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(white: 0.1)))
                     drawHistogram(model.toneHistogram, in: ctx, size: size)
@@ -158,9 +162,9 @@ struct CurveEditor: View {
                     Text("何もない所をクリックで点を追加、点をダブルクリックで削除")
                         .font(.caption).foregroundStyle(.white.opacity(0.5))
                 }
+                .frame(width: Self.presetsWidth, alignment: .leading)
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                Spacer(minLength: 0)
             }
         }
     }
