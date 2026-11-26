@@ -35,6 +35,8 @@ struct ContentView: View {
                 .help("補正前(同じデコーダーで補正をすべて 0 にしたもの)と見比べる")
             }
             ToolbarItemGroup {
+                Toggle(isOn: $model.loupeEnabled) { Label("虫眼鏡", systemImage: "magnifyingglass") }
+                    .help("大画面の上でマウスの周りを等倍(100%)で拡大")
                 Button { model.export() } label: { Label("書き出し", systemImage: "square.and.arrow.up") }
                     .disabled(model.selectedPhoto?.isMissing ?? true)
                 Button { showInspector.toggle() } label: { Label("調整", systemImage: "slider.horizontal.3") }

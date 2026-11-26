@@ -16,7 +16,84 @@ public struct DevelopSettings: Hashable, Sendable, Codable {
     public var noiseReduction: Double = 0 // 0...1 パイプライン側 NR
     public var sharpness: Double = 0      // 0...1
 
+    // レベル補正(sRGB ガンマ空間で 0...1)
+    public var levelsBlack: Double = 0
+    public var levelsGamma: Double = 1    // 1 で変化なし。大きいほど中間が明るい
+    public var levelsWhite: Double = 1
+    /// トーンカーブの点(sRGB ガンマ空間、0...1)。空なら直線
+    public var curve: [CurvePoint] = []
+
     public init() {}
+
+    public var hasToneAdjustments: Bool {
+        levelsBlack != 0 || levelsGamma != 1 || levelsWhite != 1 || !curve.isEmpty
+    }
+
+    /// レベル補正のあとにトーンカーブをかける 1 次元の対応表(count 段階、0...1)
+    public func toneLUT(count: Int = 256) -> [Float] {
+        let points = ToneCurve.normalized(curve)
+        let range = max(levelsWhite - levelsBlack, 0.001)
+        return (0..<count).map { i in
+            let x = Double(i) / Double(count - 1)
+            let t = min(max((x - levelsBlack) / range, 0), 1)
+            let leveled = pow(t, 1 / max(levelsGamma, 0.01))
+            return Float(min(max(ToneCurve.evaluate(points, at: leveled), 0), 1))
+        }
+    }
+}
+
+/// トーンカーブの点
+public struct CurvePoint: Codable, Hashable, Sendable {
+    public var x: Double
+    public var y: Double
+    public init(x: Double, y: Double) {
+        self.x = x
+        self.y = y
+    }
+}
+
+/// 点を滑らかにつなぐ(行き過ぎない単調 3 次補間 / Fritsch–Carlson)
+public enum ToneCurve {
+    /// 両端 (0,0)(1,1) を補い、x 順に並べる
+    public static func normalized(_ points: [CurvePoint]) -> [CurvePoint] {
+        var p = points.sorted { $0.x < $1.x }
+        if p.first.map({ $0.x > 0.0001 }) ?? true { p.insert(CurvePoint(x: 0, y: 0), at: 0) }
+        if p.last.map({ $0.x < 0.9999 }) ?? true { p.append(CurvePoint(x: 1, y: 1)) }
+        return p
+    }
+
+    public static func evaluate(_ p: [CurvePoint], at x: Double) -> Double {
+        guard p.count >= 2 else { return x }
+        if x <= p[0].x { return p[0].y }
+        if x >= p[p.count - 1].x { return p[p.count - 1].y }
+        let n = p.count
+        var d = [Double](repeating: 0, count: n - 1)  // 区間の傾き
+        for i in 0..<(n - 1) { d[i] = (p[i + 1].y - p[i].y) / max(p[i + 1].x - p[i].x, 1e-6) }
+        var m = [Double](repeating: 0, count: n)     // 各点での傾き
+        m[0] = d[0]
+        m[n - 1] = d[n - 2]
+        for i in 1..<(n - 1) { m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2 }
+        for i in 0..<(n - 1) where d[i] == 0 {
+            m[i] = 0
+            m[i + 1] = 0
+        }
+        for i in 0..<(n - 1) where d[i] != 0 {
+            let a = m[i] / d[i], b = m[i + 1] / d[i]
+            let s = a * a + b * b
+            if s > 9 {
+                let t = 3 / sqrt(s)
+                m[i] = t * a * d[i]
+                m[i + 1] = t * b * d[i]
+            }
+        }
+        var k = 0
+        while k < n - 2 && x > p[k + 1].x { k += 1 }
+        let h = p[k + 1].x - p[k].x
+        let t = (x - p[k].x) / h
+        let t2 = t * t, t3 = t2 * t
+        return (2 * t3 - 3 * t2 + 1) * p[k].y + (t3 - 2 * t2 + t) * h * m[k]
+            + (-2 * t3 + 3 * t2) * p[k + 1].y + (t3 - t2) * h * m[k + 1]
+    }
 }
 
 public enum DevelopPipeline {
@@ -60,6 +137,16 @@ public enum DevelopPipeline {
                 "inputPoint4": CIVector(x: 1, y: 1),
             ])
             .applyingFilter("CISRGBToneCurveToLinear")
+
+        // レベル補正 + トーンカーブ(sRGB ガンマ空間で 1 次元の対応表)
+        if s.hasToneAdjustments {
+            let lut = s.toneLUT().flatMap { [$0, $0, $0] }
+            img = img.applyingFilter("CIColorCurves", parameters: [
+                "inputCurvesData": lut.withUnsafeBufferPointer { Data(buffer: $0) },
+                "inputCurvesDomain": CIVector(x: 0, y: 1),
+                "inputColorSpace": CGColorSpace(name: CGColorSpace.sRGB)!,
+            ])
+        }
 
         if s.vibrance != 0 {
             img = img.applyingFilter("CIVibrance", parameters: ["inputAmount": s.vibrance])
@@ -222,6 +309,27 @@ public enum RawThumbnail {
 extension DevelopSettings {
     private enum Keys: String, CodingKey {
         case exposure, temperature, tint, contrast, highlights, shadows, vibrance, saturation, noiseReduction, sharpness
+        case levelsBlack, levelsGamma, levelsWhite, curve
+    }
+
+    /// 後から足した項目は既定値なら書かない(既存バージョンの内容ハッシュが変わって
+    /// 「要再書き出し」にならないように)
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        try c.encode(exposure, forKey: .exposure)
+        try c.encode(temperature, forKey: .temperature)
+        try c.encode(tint, forKey: .tint)
+        try c.encode(contrast, forKey: .contrast)
+        try c.encode(highlights, forKey: .highlights)
+        try c.encode(shadows, forKey: .shadows)
+        try c.encode(vibrance, forKey: .vibrance)
+        try c.encode(saturation, forKey: .saturation)
+        try c.encode(noiseReduction, forKey: .noiseReduction)
+        try c.encode(sharpness, forKey: .sharpness)
+        if levelsBlack != 0 { try c.encode(levelsBlack, forKey: .levelsBlack) }
+        if levelsGamma != 1 { try c.encode(levelsGamma, forKey: .levelsGamma) }
+        if levelsWhite != 1 { try c.encode(levelsWhite, forKey: .levelsWhite) }
+        if !curve.isEmpty { try c.encode(curve, forKey: .curve) }
     }
 
     public init(from decoder: Decoder) throws {
@@ -237,6 +345,10 @@ extension DevelopSettings {
         saturation = try c.decodeIfPresent(Double.self, forKey: .saturation) ?? 0
         noiseReduction = try c.decodeIfPresent(Double.self, forKey: .noiseReduction) ?? 0
         sharpness = try c.decodeIfPresent(Double.self, forKey: .sharpness) ?? 0
+        levelsBlack = try c.decodeIfPresent(Double.self, forKey: .levelsBlack) ?? 0
+        levelsGamma = try c.decodeIfPresent(Double.self, forKey: .levelsGamma) ?? 1
+        levelsWhite = try c.decodeIfPresent(Double.self, forKey: .levelsWhite) ?? 1
+        curve = try c.decodeIfPresent([CurvePoint].self, forKey: .curve) ?? []
     }
 }
 

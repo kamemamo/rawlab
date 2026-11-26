@@ -18,11 +18,15 @@ struct AdjustPanel: View {
                     decoderStrip
                 } else if model.selectedTab.grid != nil {
                     wbGrid
+                } else if model.selectedTab == .levels {
+                    LevelsEditor(model: model)
+                } else if model.selectedTab == .curve {
+                    CurveEditor(model: model)
                 } else {
                     variationStrip
                 }
             }
-            .frame(height: model.selectedTab.grid != nil ? 200 : 132)
+            .frame(height: model.selectedTab.grid != nil ? 200 : model.selectedTab.isToneEditor ? 190 : 132)
             .padding(.horizontal, 10)
             .padding(.top, 8)
             controls
@@ -239,6 +243,17 @@ struct AdjustPanel: View {
                 }
                 .buttonStyle(.plain)
                 .help("押してから、大きな画面の白やグレーの部分をクリック(esc で中止)。色温度 + で暖かく、色かぶり + でマゼンタ寄り")
+            } else if model.selectedTab == .levels {
+                let s = model.settings
+                Text(String(format: "黒 %d   中間 %.2f   白 %d",
+                            Int(s.levelsBlack * 255), s.levelsGamma, Int(s.levelsWhite * 255)))
+                    .font(.body.monospacedDigit())
+                Button("自動") { model.autoLevels() }
+                    .help("明るさの分布の両端 0.1% を切って黒と白の点を決めます")
+                Button("リセット") { model.resetTone() }
+                Text("三角をドラッグ(黒・中間・白)").font(.caption).foregroundStyle(.white.opacity(0.5))
+            } else if model.selectedTab == .curve {
+                Button("リセット") { model.resetTone() }
             } else if let p = model.selectedTab.param {
                 Text(model.selectedTab.title).foregroundStyle(.white.opacity(0.7))
                 Button { model.nudge(-1) } label: { Image(systemName: "minus") }
@@ -274,6 +289,10 @@ struct AdjustPanel: View {
 /// 中央の大きな画面
 struct PreviewArea: View {
     let model: AppModel
+    @Environment(\.displayScale) private var displayScale
+    /// 虫眼鏡を描く位置(画像上の座標)
+    @State private var loupeLocation: CGPoint?
+    private let loupeDiameter: CGFloat = 240
 
     var body: some View {
         ZStack {
@@ -299,6 +318,7 @@ struct PreviewArea: View {
                     .overlay(alignment: .topLeading) {
                         if model.compareMode == .before { badge("補正前").padding(8) }
                     }
+                    .overlay { loupeOverlay }
                     .overlay { cropOverlay }
                     .overlay { eyedropperOverlay }
                     .padding(12)
@@ -365,6 +385,52 @@ struct PreviewArea: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .coordinateSpace(name: "split")
+        }
+    }
+
+    /// 虫眼鏡: マウスの周りをフル解像度の等倍で丸く拡大する
+    @ViewBuilder
+    private var loupeOverlay: some View {
+        if model.loupeEnabled {
+            GeometryReader { geo in
+                ZStack {
+                    Color.black.opacity(0.001)
+                        .contentShape(Rectangle())
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active(let location):
+                                loupeLocation = location
+                                model.moveLoupe(to: CGPoint(x: location.x / geo.size.width,
+                                                            y: location.y / geo.size.height),
+                                                pixelSize: Int(loupeDiameter * displayScale))
+                            case .ended:
+                                loupeLocation = nil
+                                model.moveLoupe(to: nil, pixelSize: 0)
+                            }
+                        }
+                    if let location = loupeLocation {
+                        ZStack {
+                            Color(white: 0.15)
+                            if let image = model.loupeImage {
+                                // scale に画面の倍率を渡して、画像の 1 ピクセル = 画面の 1 ピクセルにする
+                                Image(decorative: image, scale: displayScale).interpolation(.none)
+                            } else {
+                                ProgressView().controlSize(.small)
+                            }
+                        }
+                        .frame(width: loupeDiameter, height: loupeDiameter)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(.white, lineWidth: 2))
+                        .overlay(alignment: .bottom) {
+                            Text("100%").font(.caption2.bold()).foregroundStyle(.white)
+                                .padding(.horizontal, 6).background(.black.opacity(0.5), in: Capsule())
+                                .padding(.bottom, 10)
+                        }
+                        .position(location)
+                        .allowsHitTesting(false)
+                    }
+                }
+            }
         }
     }
 

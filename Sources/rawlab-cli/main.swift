@@ -30,6 +30,8 @@ options:
   --nr <n>              デコーダー側ノイズリダクション 0...1
   --demosaic <m>        auto|linear|vng|ppg|ahd|dcb|dht|aahd(LibRaw のみ)
   --half                半分サイズで高速デコード
+  --levels <b,g,w>      レベル補正(黒,中間,白。例: 20,1.2,235)
+  --curve <x:y,...>     トーンカーブ(0〜255。例: 64:48,192:208)
   --crop <N>            compare: 中央 N×N px を等倍で切り出して比較
 """
 
@@ -74,6 +76,20 @@ func parse(_ args: ArraySlice<String>) throws -> Options {
             guard let m = DemosaicMethod(rawValue: v) else { throw DecoderError.failed("不明なデモザイク: \(v)") }
             o.decode.demosaic = m
         case "--half": o.decode.halfSize = true
+        case "--levels":
+            // 黒,中間,白(黒と白は 0〜255、中間は 1.0 で変化なし)
+            let v = try value(a).split(separator: ",").compactMap { Double($0) }
+            guard v.count == 3 else { throw DecoderError.failed("--levels は 黒,中間,白 の 3 つ") }
+            o.develop.levelsBlack = v[0] / 255
+            o.develop.levelsGamma = v[1]
+            o.develop.levelsWhite = v[2] / 255
+        case "--curve":
+            // 入力:出力 を , 区切り(0〜255)。例: 64:48,192:208
+            o.develop.curve = try value(a).split(separator: ",").map { pair in
+                let xy = pair.split(separator: ":").compactMap { Double($0) }
+                guard xy.count == 2 else { throw DecoderError.failed("--curve は 入力:出力 の並び") }
+                return CurvePoint(x: xy[0] / 255, y: xy[1] / 255)
+            }
         case "--crop": o.crop = Int(try number(a))
         default:
             if a.hasPrefix("--") { throw DecoderError.failed("不明なオプション: \(a)") }

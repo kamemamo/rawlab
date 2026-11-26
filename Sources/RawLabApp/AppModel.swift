@@ -149,6 +149,21 @@ final class AppModel {
     }
     var clippingOverlay: CGImage?
 
+    /// レベル補正・トーンカーブ用: その 2 つをかける前の画像のヒストグラム
+    var toneHistogram: Histogram?
+
+    // 虫眼鏡
+    var loupeEnabled = false {
+        didSet { if !loupeEnabled { loupePoint = nil; loupeImage = nil; loupeTask?.cancel() } }
+    }
+    /// 虫眼鏡の中心(画像に対する割合、左上原点)
+    var loupePoint: CGPoint?
+    var loupeImage: CGImage?
+    private var loupePixelSize = 480
+    private var loupeTask: Task<Void, Never>?
+    private var fullImageTask: Task<ImageBox?, Never>?
+    private var fullImageTaskKey = ""
+
     // スポイト(ホワイトバランス)
     var isEyedropperActive = false
 
@@ -622,6 +637,7 @@ final class AppModel {
             histogram = result.1
             clippingOverlay = result.2
         }
+        if loupeEnabled, loupePoint != nil { renderLoupe() }
     }
 
     /// 補正前(同じデコーダーで補正をすべて 0 にしたもの)を描く
@@ -667,6 +683,10 @@ final class AppModel {
         guard !loadingVersion, base != nil else { return }
         if selectedTab == .decoder {
             loadDecoderVariations()
+            return
+        }
+        if selectedTab.isToneEditor, let base {
+            renderToneHistogram(source: base.small)
             return
         }
         if let g = selectedTab.grid, let base {
@@ -742,48 +762,154 @@ final class AppModel {
         }
     }
 
-    /// 等倍切り出し用にフル解像度でデコードして、指定位置を切り出す
-    private func loadCrop() {
-        guard cropTask == nil, let photo = selectedPhoto else { return }
-        isLoadingVariations = true
+    /// フル解像度のデコード結果(等倍切り出しと虫眼鏡で共用)。同じ写真・デコーダー・設定なら使い回す
+    private func fullImageBox() async -> ImageBox? {
+        let key = "\(optionsKey)-\(decoderID)"
+        if fullImageKey == key, let full = fullImage { return full }
+        if fullImageTaskKey == key, let task = fullImageTask { return await task.value }
+        guard let photo = selectedPhoto, !photo.isMissing else { return nil }
         let url = photo.url
         let id = decoderID
         var options = decodeOptions
         options.halfSize = false
+        let task = Task.detached(priority: .userInitiated) { () -> ImageBox? in
+            (try? DecoderRegistry.decode(url, preferred: id, options: options)).map { ImageBox(image: $0.image) }
+        }
+        fullImageTask = task
+        fullImageTaskKey = key
+        let result = await task.value
+        if key == "\(optionsKey)-\(decoderID)" {
+            fullImage = result
+            fullImageKey = key
+        }
+        return result
+    }
+
+    /// 等倍切り出し用にフル解像度でデコードして、指定位置を切り出す
+    private func loadCrop() {
+        guard cropTask == nil, selectedPhoto != nil else { return }
+        isLoadingVariations = true
         let center = cropCenter
-        let key = "\(optionsKey)-\(id)"
-        let cachedFull = fullImageKey == key ? fullImage : nil
+        let key = "\(optionsKey)-\(decoderID)"
         let side = Self.cropSide
 
         cropTask = Task {
-            let result = await Task.detached(priority: .userInitiated) { () -> (ImageBox, ImageBox)? in
-                let full: CIImage
-                if let cachedFull {
-                    full = cachedFull.image
-                } else {
-                    guard let d = try? DecoderRegistry.decode(url, preferred: id, options: options) else { return nil }
-                    full = d.image
-                }
-                let e = full.extent
+            let full = await fullImageBox()
+            let crop = await Task.detached(priority: .userInitiated) { () -> ImageBox? in
+                guard let full else { return nil }
+                let e = full.image.extent
                 let cx = e.minX + center.x * e.width
                 let cy = e.maxY - center.y * e.height  // Core Image は左下原点
                 let x = min(max(cx - side / 2, e.minX), e.maxX - side)
                 let y = min(max(cy - side / 2, e.minY), e.maxY - side)
-                let crop = full.cropped(to: CGRect(x: x, y: y, width: side, height: side).integral)
+                let crop = full.image.cropped(to: CGRect(x: x, y: y, width: side, height: side).integral)
                 let moved = crop.transformed(by: .init(translationX: -crop.extent.minX, y: -crop.extent.minY))
-                guard let fixed = DevelopPipeline.materialize(moved, maxPixel: 10_000) else { return nil }
-                return (ImageBox(image: full), ImageBox(image: fixed))
+                return DevelopPipeline.materialize(moved, maxPixel: 10_000).map { ImageBox(image: $0) }
             }.value
             cropTask = nil
             isLoadingVariations = false
-            guard !Task.isCancelled, let result, key == "\(optionsKey)-\(decoderID)" else { return }
-            fullImage = result.0
-            fullImageKey = key
+            guard !Task.isCancelled, let crop, key == "\(optionsKey)-\(decoderID)" else { return }
             if center == cropCenter {
-                cropBase = result.1
+                cropBase = crop
             }
             refreshVariations()
         }
+    }
+
+    // MARK: - 虫眼鏡
+
+    /// 大画面上でマウスが動いたとき。nil で隠す
+    func moveLoupe(to point: CGPoint?, pixelSize: Int) {
+        guard loupeEnabled else { return }
+        loupePoint = point
+        loupePixelSize = pixelSize
+        if point == nil {
+            loupeTask?.cancel()
+        } else {
+            renderLoupe()
+        }
+    }
+
+    /// フル解像度から、マウス位置の周りを等倍で現像して切り出す
+    private func renderLoupe() {
+        loupeTask?.cancel()
+        guard loupeEnabled, let point = loupePoint else { return }
+        let settings = hoverSettings ?? self.settings
+        let size = CGFloat(loupePixelSize)
+        loupeTask = Task {
+            guard let full = await fullImageBox(), !Task.isCancelled else { return }
+            let cg = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+                let e = full.image.extent
+                let cx = (e.minX + point.x * e.width).rounded()
+                let cy = (e.maxY - point.y * e.height).rounded()
+                let rect = CGRect(x: cx - size / 2, y: cy - size / 2, width: size, height: size)
+                // ぼかし・シャープなど周りの画素を使う処理のため少し広めに現像してから切る
+                let region = full.image.cropped(to: rect.insetBy(dx: -24, dy: -24))
+                let out = DevelopPipeline.apply(settings, to: region)
+                return DevelopPipeline.context.createCGImage(out, from: rect, format: .RGBA8,
+                                                             colorSpace: CGColorSpace(name: CGColorSpace.displayP3))
+            }.value
+            guard !Task.isCancelled else { return }
+            loupeImage = cg
+        }
+    }
+
+    // MARK: - レベル補正・トーンカーブ
+
+    private func renderToneHistogram(source: CIImage) {
+        variationTask?.cancel()
+        var s = settings
+        s.levelsBlack = 0
+        s.levelsGamma = 1
+        s.levelsWhite = 1
+        s.curve = []
+        let box = ImageBox(image: source)
+        variationTask = Task {
+            let h = await Task.detached(priority: .userInitiated) { () -> Histogram? in
+                DevelopPipeline.renderCGImage(DevelopPipeline.apply(s, to: box.image)).flatMap { Histogram.compute(from: $0) }
+            }.value
+            guard !Task.isCancelled else { return }
+            toneHistogram = h
+        }
+    }
+
+    /// 輝度ヒストグラムの両端 0.1% を切って黒・白の点を決める
+    func autoLevels() {
+        guard let h = toneHistogram else { return }
+        let total = h.luminance.reduce(0, +)
+        guard total > 0 else { return }
+        func percentile(_ p: Float, fromTop: Bool) -> Double {
+            var acc: Float = 0
+            let indices = fromTop ? Array((0..<256).reversed()) : Array(0..<256)
+            for i in indices {
+                acc += h.luminance[i]
+                if acc / total >= p { return Double(i) / 255 }
+            }
+            return fromTop ? 1 : 0
+        }
+        var s = settings
+        s.levelsBlack = min(percentile(0.001, fromTop: false), 0.4)
+        s.levelsWhite = max(percentile(0.001, fromTop: true), 0.6)
+        settings = s
+    }
+
+    func resetTone() {
+        var s = settings
+        if selectedTab == .levels {
+            s.levelsBlack = 0
+            s.levelsGamma = 1
+            s.levelsWhite = 1
+        } else {
+            s.curve = []
+        }
+        settings = s
+    }
+
+    /// 直線と同じなら空にする(保存内容を増やさない)
+    func setCurve(_ points: [CurvePoint]) {
+        let p = ToneCurve.normalized(points)
+        let isIdentity = p.count == 2 && abs(p[0].y) < 0.001 && abs(p[1].y - 1) < 0.001
+        settings.curve = isIdentity ? [] : p
     }
 
     /// 全デコーダーで読んで並べる(読んだものは切り替え用にも使い回す)
