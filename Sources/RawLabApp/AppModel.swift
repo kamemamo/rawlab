@@ -182,6 +182,8 @@ final class AppModel {
 
     /// レベル補正・トーンカーブ用: その 2 つをかける前の画像のヒストグラム
     var toneHistogram: Histogram?
+    /// レベル補正・トーンカーブ用: 補正後(すべての補正をかけた)のヒストグラム
+    var toneHistogramAfter: Histogram?
 
     // 虫眼鏡
     var loupeEnabled = false {
@@ -1015,6 +1017,7 @@ final class AppModel {
 
     private func renderToneHistogram(source: CIImage) {
         variationTask?.cancel()
+        let after = settings
         var s = settings
         s.levelsBlack = 0
         s.levelsGamma = 1
@@ -1022,11 +1025,15 @@ final class AppModel {
         s.curve = []
         let box = ImageBox(image: source)
         variationTask = Task {
-            let h = await Task.detached(priority: .userInitiated) { () -> Histogram? in
-                DevelopPipeline.renderCGImage(DevelopPipeline.apply(s, to: box.image)).flatMap { Histogram.compute(from: $0) }
+            // 補正前(レベル補正とカーブをかける前)と補正後(すべてかけた後)
+            let (h, ha) = await Task.detached(priority: .userInitiated) { () -> (Histogram?, Histogram?) in
+                let before = DevelopPipeline.renderCGImage(DevelopPipeline.apply(s, to: box.image)).flatMap { Histogram.compute(from: $0) }
+                let done = DevelopPipeline.renderCGImage(DevelopPipeline.apply(after, to: box.image)).flatMap { Histogram.compute(from: $0) }
+                return (before, done)
             }.value
             guard !Task.isCancelled else { return }
             toneHistogram = h
+            toneHistogramAfter = ha
         }
     }
 

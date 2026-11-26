@@ -85,6 +85,19 @@ struct CurveEditor: View {
 
     private var points: [CurvePoint] { ToneCurve.normalized(model.settings.curve) }
 
+    // グラフの横軸は「元の明るさ」。レベル補正をかけてからカーブをかけるので、
+    // カーブの点は レベル補正の逆 で横位置に直して表示し、ドラッグした位置は レベル補正 でカーブの値に戻す
+    private func applyLevels(_ x: Double) -> Double {
+        let s = model.settings
+        let t = min(max((x - s.levelsBlack) / max(s.levelsWhite - s.levelsBlack, 0.001), 0), 1)
+        return pow(t, 1 / max(s.levelsGamma, 0.01))
+    }
+
+    private func inverseLevels(_ u: Double) -> Double {
+        let s = model.settings
+        return s.levelsBlack + (s.levelsWhite - s.levelsBlack) * pow(min(max(u, 0), 1), s.levelsGamma)
+    }
+
     var body: some View {
         GeometryReader { geo in
             // 高さはパネルに合わせ、幅は余った分だけ横に広げる(最大で高さの 2.2 倍)
@@ -96,6 +109,15 @@ struct CurveEditor: View {
                 Canvas { ctx, size in
                     ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(white: 0.1)))
                     drawHistogram(model.toneHistogram, in: ctx, size: size)
+                    // 補正後のヒストグラム(水色の線)
+                    if let after = model.toneHistogramAfter {
+                        var line = Path()
+                        for (i, v) in after.luminance.enumerated() {
+                            let pt = CGPoint(x: size.width * CGFloat(i) / 255, y: size.height * (1 - CGFloat(v)))
+                            if i == 0 { line.move(to: pt) } else { line.addLine(to: pt) }
+                        }
+                        ctx.stroke(line, with: .color(Color(red: 0.35, green: 0.8, blue: 1).opacity(0.85)), lineWidth: 1.2)
+                    }
                     // レベル補正で真っ黒・真っ白になる範囲を暗く
                     let lv = model.settings
                     ctx.fill(Path(CGRect(x: 0, y: 0, width: size.width * lv.levelsBlack, height: size.height)),
@@ -117,17 +139,18 @@ struct CurveEditor: View {
                     diagonal.addLine(to: CGPoint(x: size.width, y: 0))
                     ctx.stroke(diagonal, with: .color(.white.opacity(0.15)), lineWidth: 1)
 
+                    // 最終的な変化(レベル補正 → トーンカーブ)の線
                     let pts = points
                     var curve = Path()
-                    for i in 0...128 {
-                        let x = Double(i) / 128
-                        let y = min(max(ToneCurve.evaluate(pts, at: x), 0), 1)
+                    for i in 0...256 {
+                        let x = Double(i) / 256
+                        let y = min(max(ToneCurve.evaluate(pts, at: applyLevels(x)), 0), 1)
                         let pt = CGPoint(x: size.width * x, y: size.height * (1 - y))
                         if i == 0 { curve.move(to: pt) } else { curve.addLine(to: pt) }
                     }
                     ctx.stroke(curve, with: .color(.white), lineWidth: 1.5)
                     for (i, p) in pts.enumerated() {
-                        let c = CGPoint(x: size.width * p.x, y: size.height * (1 - p.y))
+                        let c = CGPoint(x: size.width * inverseLevels(p.x), y: size.height * (1 - p.y))
                         let r: CGFloat = i == dragIndex ? 5 : 4
                         ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)),
                                  with: .color(i == dragIndex ? Color.accentColor : .white))
@@ -154,12 +177,15 @@ struct CurveEditor: View {
                         preset("黒を締める", [CurvePoint(x: 0.08, y: 0.02)])
                     }
                     if let i = dragIndex, i < points.count {
-                        Text(String(format: "入力 %d → 出力 %d", Int(points[i].x * 255), Int(points[i].y * 255)))
+                        Text(String(format: "元の明るさ %d → 仕上がり %d",
+                                    Int(inverseLevels(points[i].x) * 255), Int(points[i].y * 255)))
                             .font(.caption.monospacedDigit())
                     }
                     Text("グラフ: 何もない所をクリックで点を追加、点をダブルクリックで削除")
                         .font(.caption).foregroundStyle(.white.opacity(0.5))
                     Text("下の三角: レベル補正(左から 黒・中間・白)")
+                        .font(.caption).foregroundStyle(.white.opacity(0.5))
+                    Text("白い線: レベル補正とカーブをかけた最終的な変化。灰色の山: 補正前、水色の線: 補正後のヒストグラム")
                         .font(.caption).foregroundStyle(.white.opacity(0.5))
                 }
                 .frame(width: Self.presetsWidth, alignment: .leading)
@@ -177,7 +203,8 @@ struct CurveEditor: View {
         DragGesture(minimumDistance: 0)
             .onChanged { v in
                 var pts = points
-                let x = min(max(v.location.x / side.width, 0), 1)
+                let xIn = min(max(v.location.x / side.width, 0), 1)  // 元の明るさ
+                let x = applyLevels(xIn)                              // カーブの横の値
                 let y = min(max(1 - v.location.y / side.height, 0), 1)
                 if dragIndex == nil {
                     // 近くの点をつかむ。なければ新しい点を足す
@@ -187,6 +214,9 @@ struct CurveEditor: View {
                     }), distance(pts[near], start, side) < 10 {
                         dragIndex = near
                     } else {
+                        // レベル補正で真っ黒・真っ白になる範囲には点を置けない
+                        let s = model.settings
+                        guard xIn > s.levelsBlack + 0.005, xIn < s.levelsWhite - 0.005 else { return }
                         pts.append(CurvePoint(x: x, y: y))
                         pts.sort { $0.x < $1.x }
                         dragIndex = pts.firstIndex { $0.x == x && $0.y == y }
@@ -215,6 +245,6 @@ struct CurveEditor: View {
     }
 
     private func distance(_ p: CurvePoint, _ loc: CGPoint, _ side: CGSize) -> CGFloat {
-        hypot(p.x * side.width - loc.x, (1 - p.y) * side.height - loc.y)
+        hypot(inverseLevels(p.x) * side.width - loc.x, (1 - p.y) * side.height - loc.y)
     }
 }
