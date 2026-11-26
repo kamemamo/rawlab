@@ -33,11 +33,7 @@ public enum DevelopPipeline {
             img = img.applyingFilter("CIExposureAdjust", parameters: ["inputEV": s.exposure])
         }
         if s.temperature != 0 || s.tint != 0 {
-            // neutral → targetNeutral の変換。target を下げると暖色寄りになる
-            img = img.applyingFilter("CITemperatureAndTint", parameters: [
-                "inputNeutral": CIVector(x: 6500, y: 0),
-                "inputTargetNeutral": CIVector(x: 6500 - s.temperature, y: -s.tint),
-            ])
+            img = whiteBalance(img, temperature: s.temperature, tint: s.tint)
         }
         if s.highlights != 0 || s.shadows != 0 {
             img = img.applyingFilter("CIHighlightShadowAdjust", parameters: [
@@ -80,6 +76,75 @@ public enum DevelopPipeline {
             ])
         }
         return img
+    }
+
+    /// 色温度・色かぶりの補正(neutral → targetNeutral の変換。target を下げると暖色寄りになる)。
+    /// スポイトもこれを使って同じ計算で中立点を探す
+    public static func whiteBalance(_ image: CIImage, temperature: Double, tint: Double) -> CIImage {
+        image.applyingFilter("CITemperatureAndTint", parameters: [
+            "inputNeutral": CIVector(x: 6500, y: 0),
+            "inputTargetNeutral": CIVector(x: 6500 - temperature, y: -tint),
+        ])
+    }
+
+    /// スポイト: 指定した点(画像に対する割合、左上原点)が無彩色になる色温度・色かぶりを探す。
+    /// 7×7 ピクセルの平均を取り、R/G と B/G が 1 に近づくよう座標ごとに黄金分割探索する
+    public static func solveWhiteBalance(
+        _ image: CIImage, at point: CGPoint,
+        temperatureRange: ClosedRange<Double>, tintRange: ClosedRange<Double>
+    ) -> (temperature: Double, tint: Double)? {
+        guard let sample = samplePoint(image, at: point) else { return nil }
+        let (r0, g0, b0) = rgb(sample)
+        // 真っ黒・白飛びの点では決められない
+        guard min(r0, g0, b0) > 0.002, max(r0, g0, b0) < 0.98 else { return nil }
+
+        func cost(_ t: Double, _ ti: Double) -> Double {
+            let (r, g, b) = rgb(whiteBalance(sample, temperature: t, tint: ti))
+            guard r > 0, g > 0, b > 0 else { return .infinity }
+            let a = log(Double(r / g)), c = log(Double(b / g))
+            return a * a + c * c
+        }
+        func golden(_ range: ClosedRange<Double>, _ f: (Double) -> Double) -> Double {
+            let k = (sqrt(5.0) - 1) / 2
+            var lo = range.lowerBound, hi = range.upperBound
+            var m1 = hi - k * (hi - lo), m2 = lo + k * (hi - lo)
+            var f1 = f(m1), f2 = f(m2)
+            for _ in 0..<24 {
+                if f1 < f2 {
+                    hi = m2; m2 = m1; f2 = f1
+                    m1 = hi - k * (hi - lo); f1 = f(m1)
+                } else {
+                    lo = m1; m1 = m2; f1 = f2
+                    m2 = lo + k * (hi - lo); f2 = f(m2)
+                }
+            }
+            return (lo + hi) / 2
+        }
+        var t = 0.0, ti = 0.0
+        for _ in 0..<4 {
+            t = golden(temperatureRange) { cost($0, ti) }
+            ti = golden(tintRange) { cost(t, $0) }
+        }
+        return (t, ti)
+    }
+
+    /// 指定した点(割合、左上原点)の 7×7 ピクセル平均を 1 ピクセルの画像で返す
+    public static func samplePoint(_ image: CIImage, at point: CGPoint) -> CIImage? {
+        let e = image.extent
+        let x = e.minX + point.x * e.width
+        let y = e.maxY - point.y * e.height  // Core Image は左下原点
+        let rect = CGRect(x: x - 3, y: y - 3, width: 7, height: 7).intersection(e)
+        guard !rect.isEmpty else { return nil }
+        return image.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: rect)])
+    }
+
+    /// 1 ピクセル目の色(作業空間 = リニア)
+    public static func rgb(_ img: CIImage) -> (Float, Float, Float) {
+        var px = [Float](repeating: 0, count: 4)
+        context.render(img, toBitmap: &px, rowBytes: 16,
+                       bounds: CGRect(origin: img.extent.origin, size: CGSize(width: 1, height: 1)),
+                       format: .RGBAf, colorSpace: nil)
+        return (px[0], px[1], px[2])
     }
 
     /// 長辺 maxPixel に縮小(プレビュー用)

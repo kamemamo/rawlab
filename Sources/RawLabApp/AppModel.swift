@@ -42,6 +42,13 @@ private struct ImageBox: @unchecked Sendable {
     let image: CIImage
 }
 
+/// 補正前との比較
+enum CompareMode: Hashable {
+    case off      // 補正後だけ
+    case before   // 補正前だけ
+    case split    // 左が補正前、右が補正後
+}
+
 enum SidebarItem: Hashable {
     case all
     case folder(Int64)
@@ -126,6 +133,17 @@ final class AppModel {
     var exportFormat = ExportFormat.jpeg
     var exportRoot: URL { catalog?.exportRoot ?? Catalog.defaultExportRoot }
     var isExporting = false
+
+    // 補正前との比較
+    var compareMode = CompareMode.off {
+        didSet { if compareMode != .off, beforePreview == nil { renderBefore() } }
+    }
+    var beforePreview: CGImage?
+    /// 左右で比較するときの境目(画像幅に対する割合)
+    var splitPosition: CGFloat = 0.5
+
+    // スポイト(ホワイトバランス)
+    var isEyedropperActive = false
 
     // 表示
     var preview: CGImage?
@@ -559,6 +577,8 @@ final class AppModel {
 
     private func setBase(_ b: DecodedBase) {
         base = b
+        beforePreview = nil
+        if compareMode != .off { renderBefore() }
         previewDecoderID = b.decoderID
         previewTime = b.time
         rerender()
@@ -589,6 +609,44 @@ final class AppModel {
             }.value
             guard !Task.isCancelled, let cg else { return }
             preview = cg
+        }
+    }
+
+    /// 補正前(同じデコーダーで補正をすべて 0 にしたもの)を描く
+    private func renderBefore() {
+        guard let b = base else { return }
+        let box = ImageBox(image: b.image)
+        Task {
+            let cg = await Task.detached(priority: .userInitiated) {
+                DevelopPipeline.renderCGImage(DevelopPipeline.apply(DevelopSettings(), to: box.image))
+            }.value
+            guard base?.image === box.image else { return }
+            beforePreview = cg
+        }
+    }
+
+    /// スポイトで大画面をクリック: その点が無彩色になる色温度・色かぶりにする
+    func applyEyedropper(at point: CGPoint) {
+        isEyedropperActive = false
+        guard let b = base, let g = AdjustTab.whiteBalance.grid else { return }
+        let box = ImageBox(image: b.image)
+        let tRange = g.x.range, tiRange = g.y.range
+        status = "スポイト: 計算中…"
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                DevelopPipeline.solveWhiteBalance(box.image, at: point,
+                                                  temperatureRange: tRange, tintRange: tiRange)
+            }.value
+            guard let result else {
+                status = "スポイト: 暗すぎるか白飛びしている場所です。白やグレーの部分をクリックしてください"
+                return
+            }
+            var s = settings
+            s[keyPath: g.x.keyPath] = g.x.clamp(result.temperature)
+            s[keyPath: g.y.keyPath] = g.y.clamp(result.tint)
+            fineTabs.insert(.whiteBalance)
+            status = "スポイト: 色温度 \(g.x.label(s[keyPath: g.x.keyPath])) / 色かぶり \(g.y.label(s[keyPath: g.y.keyPath]))"
+            settings = s
         }
     }
 

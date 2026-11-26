@@ -9,6 +9,7 @@ let usage = """
   rawlab info <file.NEF>...
   rawlab develop <file.NEF>... [options]
   rawlab compare <file.NEF> [options] [--crop N]
+  rawlab wb <file.NEF> <x> <y>      点 (0〜1, 左上原点) が無彩色になる WB を求める
 
 ライブラリ(~/Pictures/RawLab Library、環境変数 RAWLAB_LIBRARY で変更可):
   rawlab library                    ライブラリの概要
@@ -219,6 +220,23 @@ do {
         for f in o.files { try printInfo(f) }
     case "develop":
         try develop(o)
+    case "wb":
+        // rawlab wb <file> <x> <y>  … 点 (x, y は 0〜1、左上原点) が無彩色になる色温度・色かぶり
+        guard o.files.count == 3, let x = Double(o.files[1].lastPathComponent),
+              let y = Double(o.files[2].lastPathComponent) else { print(usage); exit(1) }
+        var opts = o.decode
+        opts.halfSize = true
+        let d = try DecoderRegistry.decode(o.files[0], preferred: o.decoder, options: opts)
+        guard let base = DevelopPipeline.materialize(d.image, maxPixel: 2400),
+              let r = DevelopPipeline.solveWhiteBalance(base, at: CGPoint(x: x, y: y),
+                                                        temperatureRange: -5000...5000, tintRange: -60...60)
+        else { print("この点では決められません"); exit(1) }
+        print(String(format: "色温度 %+.0f K / 色かぶり %+.1f  (%@)", r.temperature, r.tint, d.decoderID))
+        if let p = DevelopPipeline.samplePoint(base, at: CGPoint(x: x, y: y)) {
+            let (r0, g0, b0) = DevelopPipeline.rgb(p)
+            let (r1, g1, b1) = DevelopPipeline.rgb(DevelopPipeline.whiteBalance(p, temperature: r.temperature, tint: r.tint))
+            print(String(format: "  補正前 R %.3f G %.3f B %.3f → 補正後 R %.3f G %.3f B %.3f", r0, g0, b0, r1, g1, b1))
+        }
     case "compare":
         try compare(o)
     default:

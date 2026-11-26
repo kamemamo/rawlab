@@ -25,6 +25,15 @@ struct ContentView: View {
         .navigationTitle(model.selectedPhoto?.fileName ?? "RawLab")
         .navigationSubtitle(model.selectedPhoto?.metadata?.summary ?? "")
         .toolbar {
+            ToolbarItem {
+                Picker("比較", selection: $model.compareMode) {
+                    Text("補正後").tag(CompareMode.off)
+                    Text("補正前").tag(CompareMode.before)
+                    Text("左右で比較").tag(CompareMode.split)
+                }
+                .pickerStyle(.segmented)
+                .help("補正前(同じデコーダーで補正をすべて 0 にしたもの)と見比べる")
+            }
             ToolbarItemGroup {
                 Button { model.export() } label: { Label("書き出し", systemImage: "square.and.arrow.up") }
                     .disabled(model.selectedPhoto?.isMissing ?? true)

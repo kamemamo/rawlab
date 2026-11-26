@@ -1,3 +1,4 @@
+import AppKit
 import DecoderKit
 import SwiftUI
 
@@ -33,6 +34,11 @@ struct AdjustPanel: View {
         .focused($focused)
         .onKeyPress(.leftArrow) { model.nudge(-1); return .handled }
         .onKeyPress(.rightArrow) { model.nudge(1); return .handled }
+        .onKeyPress(.escape) {
+            guard model.isEyedropperActive else { return .ignored }
+            model.isEyedropperActive = false
+            return .handled
+        }
         .onKeyPress(.upArrow) {
             guard model.selectedTab.grid != nil else { return .ignored }
             model.nudgeVertical(1)
@@ -220,8 +226,19 @@ struct AdjustPanel: View {
                 Text(fine ? "細かい段階(\(g.x.label(g.x.fineStep)) / \(g.y.label(g.y.fineStep)) 刻み)" : "粗い段階")
                     .font(.caption).foregroundStyle(.white.opacity(0.5))
                 Button("0 に戻す") { model.resetCurrentParam() }
-                Text("色温度 + で暖かく、色かぶり + でマゼンタ寄り")
-                    .font(.caption).foregroundStyle(.white.opacity(0.5))
+                Button {
+                    model.isEyedropperActive.toggle()
+                    focused = true
+                } label: {
+                    Label(model.isEyedropperActive ? "スポイト中" : "スポイト", systemImage: "eyedropper")
+                        .fixedSize()
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(model.isEyedropperActive ? accent : Color.white.opacity(0.15),
+                                    in: RoundedRectangle(cornerRadius: 5))
+                }
+                .buttonStyle(.plain)
+                .help("押してから、大きな画面の白やグレーの部分をクリック(esc で中止)。色温度 + で暖かく、色かぶり + でマゼンタ寄り")
             } else if let p = model.selectedTab.param {
                 Text(model.selectedTab.title).foregroundStyle(.white.opacity(0.7))
                 Button { model.nudge(-1) } label: { Image(systemName: "minus") }
@@ -269,10 +286,15 @@ struct PreviewArea: View {
                 }
                 .foregroundStyle(.white)
             } else if let image = model.preview {
-                Image(decorative: image, scale: 1)
+                Image(decorative: model.compareMode == .before ? (model.beforePreview ?? image) : image, scale: 1)
                     .resizable()
                     .scaledToFit()
+                    .overlay { if model.compareMode == .split { splitOverlay } }
+                    .overlay(alignment: .topLeading) {
+                        if model.compareMode == .before { badge("補正前").padding(8) }
+                    }
                     .overlay { cropOverlay }
+                    .overlay { eyedropperOverlay }
                     .padding(12)
             } else if model.isDecoding {
                 ProgressView("デコード中…").controlSize(.large).foregroundStyle(.white)
@@ -287,6 +309,79 @@ struct PreviewArea: View {
             if let id = model.previewDecoderID, id != model.decoderID {
                 Text("\(model.displayName(for: model.decoderID)) で開けなかったため \(model.displayName(for: id)) で表示中")
                     .font(.caption).foregroundStyle(.orange).padding(16)
+            }
+        }
+    }
+
+    private func badge(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.bold())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(.black.opacity(0.55), in: Capsule())
+    }
+
+    /// 左右で比較: 境目より左に補正前を重ねる。境目はドラッグで動かせる
+    private var splitOverlay: some View {
+        GeometryReader { geo in
+            let x = geo.size.width * model.splitPosition
+            ZStack(alignment: .topLeading) {
+                if let before = model.beforePreview {
+                    Image(decorative: before, scale: 1)
+                        .resizable()
+                        .scaledToFit()
+                        .mask(alignment: .leading) { Rectangle().frame(width: x) }
+                }
+                Rectangle()
+                    .fill(.white)
+                    .frame(width: 2, height: geo.size.height)
+                    .position(x: x, y: geo.size.height / 2)
+                    .allowsHitTesting(false)
+                Image(systemName: "arrow.left.and.right.circle.fill")
+                    .font(.title)
+                    .foregroundStyle(.white, .black.opacity(0.5))
+                    .position(x: x, y: geo.size.height / 2)
+                    .allowsHitTesting(false)
+                // つかむ場所は線より広めに
+                Color.clear
+                    .frame(width: 24, height: geo.size.height)
+                    .contentShape(Rectangle())
+                    .position(x: x, y: geo.size.height / 2)
+                    .gesture(DragGesture(coordinateSpace: .named("split")).onChanged { v in
+                        model.splitPosition = min(max(v.location.x / geo.size.width, 0.02), 0.98)
+                    })
+                    .onHover { inside in
+                        if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                    }
+                badge("補正前").padding(8)
+                badge("補正後").padding(8)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .coordinateSpace(name: "split")
+        }
+    }
+
+    /// スポイト中: 十字カーソルにして、クリックした点で WB を決める
+    @ViewBuilder
+    private var eyedropperOverlay: some View {
+        if model.isEyedropperActive {
+            GeometryReader { geo in
+                Color.black.opacity(0.001)
+                    .contentShape(Rectangle())
+                    .onTapGesture { location in
+                        model.applyEyedropper(at: CGPoint(x: location.x / geo.size.width,
+                                                          y: location.y / geo.size.height))
+                    }
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active: NSCursor.crosshair.set()
+                        case .ended: NSCursor.arrow.set()
+                        }
+                    }
+            }
+            .overlay(alignment: .top) {
+                badge("スポイト: 白やグレーの部分をクリック(esc で中止)").padding(8).allowsHitTesting(false)
             }
         }
     }
