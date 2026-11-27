@@ -4,6 +4,8 @@
 
 A personal RAW developer for macOS. You can switch between several RAW decoders and compare their results side by side.
 
+![RawLab's main window: pick adjustments from the step thumbnails at the bottom](docs/readme/screenshot.jpg)
+
 ## Download
 
 Get the notarized app from [Releases](https://github.com/kamemamo/rawlab/releases) (`RawLab-<version>.zip`). Unzip it and drag `RawLab.app` into Applications.

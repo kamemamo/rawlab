@@ -4,6 +4,8 @@
 
 自分用の RAW 現像アプリ(macOS)。デコーダーを切り替えて比較できる。
 
+![RawLab の画面。下の段階サムネイルから選んで調整する](docs/readme/screenshot.jpg)
+
 ## ダウンロード
 
 公証済みのアプリは [Releases](https://github.com/kamemamo/rawlab/releases) にある(`RawLab-<版>.zip`)。展開して `RawLab.app` を「アプリケーション」へドラッグする。
