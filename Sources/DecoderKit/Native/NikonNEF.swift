@@ -81,7 +81,16 @@ struct NikonNEF {
         bitsPerSample = try int(258)
         compression = try int(259)
         dataOffset = try int(273)
-        dataLength = try int(279)
+        // 本体がいくつかのストリップに分かれていることがある(D800 の非圧縮など)。
+        // すき間なく続いていれば 1 つの塊として扱う
+        let offsets = rawIFD[273].map(tiff.ints) ?? []
+        let lengths = rawIFD[279].map(tiff.ints) ?? []
+        if offsets.count > 1, offsets.count == lengths.count,
+           zip(offsets, lengths).dropLast().enumerated().allSatisfy({ offsets[$0.offset + 1] == $0.element.0 + $0.element.1 }) {
+            dataLength = lengths.reduce(0, +)
+        } else {
+            dataLength = try int(279)
+        }
 
         // CFA の色配置(CFARepeatPatternDim = 2×2 のみ)
         let dim = rawIFD[33421].map(tiff.ints) ?? [2, 2]
