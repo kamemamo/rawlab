@@ -26,7 +26,17 @@ struct TIFFReader {
         case (0x4D, 0x4D): littleEndian = false
         default: throw Failure.notTIFF
         }
-        guard (try? u16(at: offset + 2)) == 42 else { throw Failure.notTIFF }
+        // 42 が TIFF。オリンパスの ORF は "RO"(0x4F52)か "RS"(0x5352)
+        guard let magic = try? u16(at: offset + 2), [42, 0x4F52, 0x5352].contains(magic) else {
+            throw Failure.notTIFF
+        }
+    }
+
+    /// ヘッダーのない IFD の集まりを読む(オリンパスのメーカーノートは、先頭からの相対位置で IFD を指す)
+    init(data: Data, base: Int, littleEndian: Bool) {
+        self.data = data
+        self.base = base
+        self.littleEndian = littleEndian
     }
 
     /// 最初の IFD の位置(base からの相対)

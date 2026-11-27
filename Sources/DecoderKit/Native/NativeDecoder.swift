@@ -8,6 +8,7 @@ import ImageIO
 /// その先(WB → デモザイク → 色の変換)は RawLab エンジンと同じ処理(BayerMosaic)を通す。
 ///
 /// - 対応: ニコンの NEF(圧縮・ロスレス圧縮・非圧縮)のうち、色の値を持っている機種(いまは D5・D800)
+/// - 対応: オリンパスの ORF(12bit の圧縮)のうち、色の値を持っている機種(いまは E-M1 Mark III)
 /// - 対応: DNG(ベイヤー配列と、デモザイク済みの RGB = iPhone の ProRAW など)。
 ///   非圧縮・ロスレス JPEG・JPEG XL(展開だけ macOS の ImageIO)。色の値はファイルの中にあるので機種を問わない
 /// - 未対応のものは開く前に `unsupportedReason` で理由を返す
@@ -20,6 +21,7 @@ public struct NativeDecoder: RawDecoder {
     /// 読んだファイル(形式ごと)
     private enum Source {
         case nef(NikonNEF)
+        case orf(OlympusORF)
         case dng(DNGFile)
 
         init(_ url: URL) throws {
@@ -27,15 +29,16 @@ public struct NativeDecoder: RawDecoder {
             switch url.pathExtension.lowercased() {
             case "dng": self = .dng(try DNGFile(data: data))
             case "nef", "nrw": self = .nef(try NikonNEF(data: data))
+            case "orf": self = .orf(try OlympusORF(data: data))
             default: throw DecoderError.failed("RawLab ネイティブ: \(NativeDecoder.formatsReason)")
             }
         }
     }
 
-    private static let formatsReason = "ニコンの NEF と DNG のみ対応"
+    private static let formatsReason = "ニコンの NEF・オリンパスの ORF・DNG のみ対応"
 
     public func unsupportedReason(_ url: URL) -> String? {
-        guard ["nef", "nrw", "dng"].contains(url.pathExtension.lowercased()) else {
+        guard ["nef", "nrw", "orf", "dng"].contains(url.pathExtension.lowercased()) else {
             return Self.formatsReason
         }
         return Self.check(url)
@@ -48,6 +51,7 @@ public struct NativeDecoder: RawDecoder {
         let image: CIImage
         switch source {
         case .nef(let nef): image = try Self.mosaic(nef).develop(options)
+        case .orf(let orf): image = try Self.mosaic(orf).develop(options)
         case .dng(let dng) where dng.isLinearRaw: image = try Self.linear(dng).develop(options)
         case .dng(let dng): image = try Self.mosaic(dng).develop(options)
         }
@@ -75,6 +79,7 @@ public struct NativeDecoder: RawDecoder {
         do {
             switch try Source(url) {
             case .nef(let nef): reason = unsupportedReason(nef)
+            case .orf(let orf): reason = unsupportedReason(orf)
             case .dng(let dng): reason = dng.unsupportedReason
             }
         } catch {
@@ -94,6 +99,29 @@ public struct NativeDecoder: RawDecoder {
         }
         guard nef.asShotRB != nil else { return "撮影時の WB がメーカーノートにないため未対応" }
         return nil
+    }
+
+    private static func unsupportedReason(_ orf: OlympusORF) -> String? {
+        if let reason = orf.unsupportedReason { return reason }
+        guard CameraColor.matrices[orf.model.uppercased()] != nil else {
+            let supported = CameraColor.supportedModels.map(cleanModel).joined(separator: "・")
+            return "\(orf.model) の色の値を持っていないため未対応(対応: \(supported))"
+        }
+        guard orf.asShotRB != nil else { return "撮影時の WB がメーカーノートにないため未対応" }
+        return nil
+    }
+
+    /// R, G(R の行), G(B の行), B の順の黒レベルを、2×2 の位置ごとに割り当てる
+    private static func blackForPosition(_ black: [Int], pattern: [Int]) -> [Float] {
+        (0..<4).map { pos in
+            switch pattern[pos] {
+            case 0: Float(black[0])
+            case 2: Float(black[3])
+            default:
+                // 同じ行に R があれば R の行の緑
+                Float(pattern[(pos & 2) + (1 - (pos & 1))] == 0 ? black[1] : black[2])
+            }
+        }
     }
 
     private static func orientation(_ tiffValue: Int) -> CGImagePropertyOrientation? {
@@ -123,15 +151,7 @@ public struct NativeDecoder: RawDecoder {
         // (D500 の 12bit ロスレスで 400 → 100。LibRaw も同じ)
         let black = blackLevel.map { $0 >> max(0, 14 - nef.bitsPerSample) }
         let pattern = nef.cfa.map { $0 == 3 ? 1 : $0 }
-        let blackForPosition: [Float] = (0..<4).map { pos in
-            switch pattern[pos] {
-            case 0: Float(black[0])
-            case 2: Float(black[3])
-            default:
-                // 同じ行に R があれば R の行の緑
-                Float(pattern[(pos & 2) + (1 - (pos & 1))] == 0 ? black[1] : black[2])
-            }
-        }
+        let blackForPosition = blackForPosition(black, pattern: pattern)
 
         return BayerMosaic(
             width: width, height: nef.height,
@@ -144,6 +164,28 @@ public struct NativeDecoder: RawDecoder {
             daylightMul: color.daylight,
             matrix: color.matrix,
             orientation: orientation(nef.orientation))
+    }
+
+    // MARK: - ORF → モザイク
+
+    private static func mosaic(_ orf: OlympusORF) throws -> BayerMosaic {
+        guard let camXYZ = CameraColor.matrices[orf.model.uppercased()],
+              let color = CameraColor.conversion(cameraFromXYZ: camXYZ.map { $0 / 10000 }),
+              let rb = orf.asShotRB
+        else { throw DecoderError.failed("RawLab ネイティブ: \(unsupportedReason(orf) ?? "未対応")") }
+        let raw = try orf.decode()
+        let pattern = [0, 1, 1, 2]  // オリンパスは RGGB
+        return BayerMosaic(
+            width: orf.width, height: orf.height,
+            pattern: pattern,
+            raw: raw,
+            blackForPosition: blackForPosition(orf.blackLevel ?? [0, 0, 0, 0], pattern: pattern),
+            blackPattern: (0, 0, []),
+            white: Float(orf.white),
+            asShotMul: [Float(rb.r), 1, Float(rb.b)],
+            daylightMul: color.daylight,
+            matrix: color.matrix,
+            orientation: orientation(orf.orientation))
     }
 
     // MARK: - DNG → モザイク
@@ -235,6 +277,12 @@ public struct NativeDecoder: RawDecoder {
             e = nef.exif
             size = (CameraColor.visibleWidth[nef.model.uppercased()].map { min($0, nef.width) } ?? nef.width, nef.height)
             orientation = nef.orientation
+        case .orf(let orf):
+            meta.make = orf.make.uppercased().hasPrefix("OLYMPUS") ? "Olympus" : orf.make
+            meta.model = orf.model
+            e = orf.exif
+            size = (orf.width, orf.height)
+            orientation = orf.orientation
         case .dng(let dng):
             meta.make = dng.make
             meta.model = dng.model
