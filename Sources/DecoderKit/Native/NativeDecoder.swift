@@ -8,7 +8,8 @@ import ImageIO
 /// その先(WB → デモザイク → 色の変換)は RawLab エンジンと同じ処理(BayerMosaic)を通す。
 ///
 /// - 対応: ニコンの NEF(圧縮・ロスレス圧縮・非圧縮)のうち、色の値を持っている機種(いまは D5)
-/// - 対応: ベイヤー配列の DNG(非圧縮・ロスレス JPEG 圧縮)。色の値はファイルの中にあるので機種を問わない
+/// - 対応: DNG(ベイヤー配列と、デモザイク済みの RGB = iPhone の ProRAW など)。
+///   非圧縮・ロスレス JPEG・JPEG XL(展開だけ macOS の ImageIO)。色の値はファイルの中にあるので機種を問わない
 /// - 未対応のものは開く前に `unsupportedReason` で理由を返す
 public struct NativeDecoder: RawDecoder {
     public let id = "native"
@@ -44,12 +45,12 @@ public struct NativeDecoder: RawDecoder {
         if let reason = unsupportedReason(url) { throw DecoderError.failed("\(displayName): \(reason)") }
         let start = Date()
         let source = try Source(url)
-        let mosaic: BayerMosaic
+        let image: CIImage
         switch source {
-        case .nef(let nef): mosaic = try Self.mosaic(nef)
-        case .dng(let dng): mosaic = try Self.mosaic(dng)
+        case .nef(let nef): image = try Self.mosaic(nef).develop(options)
+        case .dng(let dng) where dng.isLinearRaw: image = try Self.linear(dng).develop(options)
+        case .dng(let dng): image = try Self.mosaic(dng).develop(options)
         }
-        let image = mosaic.develop(options)
         return DecodedImage(image: image, metadata: Self.metadata(source), decoderID: id,
                             options: options, decodeTime: Date().timeIntervalSince(start))
     }
@@ -172,6 +173,39 @@ public struct NativeDecoder: RawDecoder {
             asShotMul: asShot,
             daylightMul: color.daylight,
             matrix: color.matrix,
+            orientation: orientation(dng.orientation))
+    }
+
+    // MARK: - デモザイク済みの DNG → リニア RGB
+
+    private static func linear(_ dng: DNGFile) throws -> LinearRGB {
+        guard dng.unsupportedReason == nil, let camXYZ = dng.colorMatrix,
+              let color = CameraColor.conversion(cameraFromXYZ: camXYZ)
+        else { throw DecoderError.failed("RawLab ネイティブ: \(dng.unsupportedReason ?? "色の行列を計算できません")") }
+
+        let full = try dng.decode()
+        let a = dng.activeArea
+        let w = a.right - a.left, h = a.bottom - a.top
+        var raw = [UInt16](repeating: 0, count: w * h * 3)
+        full.withUnsafeBufferPointer { src in
+            raw.withUnsafeMutableBufferPointer { dst in
+                for y in 0..<h {
+                    dst.baseAddress!.advanced(by: y * w * 3)
+                        .update(from: src.baseAddress!.advanced(by: ((y + a.top) * dng.rawWidth + a.left) * 3), count: w * 3)
+                }
+            }
+        }
+        // 黒レベルは色ごと(3 個)か、全部同じ(1 個)
+        let b = dng.black.values
+        let black: [Float] = b.count >= 3 ? b.prefix(3).map(Float.init) : Array(repeating: Float(b.first ?? 0), count: 3)
+        let asShot = dng.asShotNeutral.map { n in n.map { Float(n[1] / $0) } } ?? color.daylight
+
+        return LinearRGB(
+            width: w, height: h, raw: raw, black: black,
+            white: Float(dng.whiteLevel),
+            asShotMul: asShot, daylightMul: color.daylight,
+            matrix: color.matrix,
+            exposureGain: Float(pow(2, dng.baselineExposure)),
             orientation: orientation(dng.orientation))
     }
 

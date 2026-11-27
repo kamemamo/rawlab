@@ -82,7 +82,11 @@ struct BayerMosaic {
 
     /// カメラの RGB → リニア sRGB(RGBA の並び。A はそのまま)
     func convertToSRGB(_ rgba: inout [Float]) {
-        let m = matrix
+        Self.apply(matrix, to: &rgba)
+    }
+
+    /// RGBA の並びの各画素に 3×3 の行列をかける(A はそのまま)
+    static func apply(_ m: [Float], to rgba: inout [Float]) {
         let count = rgba.count / 4
         rgba.withUnsafeMutableBufferPointer { p in
             DispatchQueue.concurrentPerform(iterations: max(1, count / 65536 + 1)) { chunk in
