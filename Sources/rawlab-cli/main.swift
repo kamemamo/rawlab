@@ -138,6 +138,9 @@ func printInfo(_ url: URL) throws {
     if let adl = m.activeDLighting { print("  アクティブD-ライティング : \(adl)") }
     let ok = DecoderRegistry.all.filter { $0.canDecode(url) }.map(\.id)
     print("  対応デコーダー : \(ok.joined(separator: ", "))")
+    for d in DecoderRegistry.all {
+        if let reason = d.unsupportedReason(url) { print("  非対応     : \(d.id)(\(reason))") }
+    }
 }
 
 func develop(_ o: Options) throws {
@@ -149,7 +152,9 @@ func develop(_ o: Options) throws {
             url.deletingPathExtension().lastPathComponent + "_\(decoded.decoderID).\(o.format.fileExtension)")
         let t0 = Date()
         try Exporter.export(result, to: dest, format: o.format)
-        let note = decoded.decoderID == o.decoder ? "" : "(\(o.decoder) が失敗したため代替)"
+        let reason = DecoderRegistry.decoder(id: o.decoder)?.unsupportedReason(url)
+        let note = decoded.decoderID == o.decoder ? ""
+            : reason.map { "(\(o.decoder) は \($0)のため代替)" } ?? "(\(o.decoder) が失敗したため代替)"
         print("✓ \(dest.path)  [\(decoded.decoderID)\(note)] デコード \(fmt(decoded.decodeTime)) / 書き出し \(fmt(Date().timeIntervalSince(t0)))")
     }
 }

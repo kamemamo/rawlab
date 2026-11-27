@@ -29,6 +29,8 @@ struct DecoderVariation: Identifiable {
     let time: TimeInterval
     /// nil ならこのデコーダーでは開けない
     let image: CGImage?
+    /// 開けない理由が前もって分かっていればその説明(JPEG XL の DNG など)
+    var reason: String? = nil
 }
 
 /// デコード結果をプレビュー用(長辺 2400)とサムネイル用(長辺 400)のビットマップに確定したもの
@@ -822,6 +824,12 @@ final class AppModel {
         selectedTab.param?.usesCrop == true ? 1 : stepDensity
     }
 
+    /// 今の写真を選んだデコーダーで開けない理由(前もって分かるもの)
+    var decoderUnsupportedReason: String? {
+        guard let url = selectedPhoto?.url else { return nil }
+        return DecoderRegistry.decoder(id: decoderID)?.unsupportedReason(url)
+    }
+
     func refreshVariations() {
         guard !loadingVersion, base != nil else { return }
         if selectedTab == .decoder {
@@ -1126,17 +1134,18 @@ final class AppModel {
 
     private func renderDecoderVariations() {
         variationTask?.cancel()
-        let items: [(String, String, DecodedBase?)] = DecoderRegistry.all.compactMap { d in
-            if let b = decoderBases[d.id] { return (d.id, d.displayName, b) }
-            if decoderFailures.contains(d.id) { return (d.id, d.displayName, nil) }
+        let url = selectedPhoto?.url
+        let items: [(String, String, DecodedBase?, String?)] = DecoderRegistry.all.compactMap { d in
+            if let b = decoderBases[d.id] { return (d.id, d.displayName, b, nil) }
+            if decoderFailures.contains(d.id) { return (d.id, d.displayName, nil, url.flatMap { d.unsupportedReason($0) }) }
             return nil
         }
         let settings = self.settings
         variationTask = Task {
             let result = await Task.detached(priority: .userInitiated) { () -> [DecoderVariation] in
-                items.map { id, name, b in
+                items.map { id, name, b, reason in
                     let cg = b.flatMap { DevelopPipeline.renderCGImage(DevelopPipeline.apply(settings, to: $0.small)) }
-                    return DecoderVariation(decoderID: id, name: name, time: b?.time ?? 0, image: cg)
+                    return DecoderVariation(decoderID: id, name: name, time: b?.time ?? 0, image: cg, reason: reason)
                 }
             }.value
             guard !Task.isCancelled else { return }

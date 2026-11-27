@@ -10,14 +10,18 @@ public protocol RawDecoder: Sendable {
     var id: String { get }
     var displayName: String { get }
     func canDecode(_ url: URL) -> Bool
+    /// このファイルを開けない理由(開けるなら nil)。開く前に分かるものだけ
+    func unsupportedReason(_ url: URL) -> String?
     func decode(_ url: URL, options: DecodeOptions) throws -> DecodedImage
     func metadata(_ url: URL) throws -> RawMetadata
 }
 
 public extension RawDecoder {
     func canDecode(_ url: URL) -> Bool {
-        RawFiles.extensions.contains(url.pathExtension.lowercased())
+        RawFiles.extensions.contains(url.pathExtension.lowercased()) && unsupportedReason(url) == nil
     }
+
+    func unsupportedReason(_ url: URL) -> String? { nil }
 }
 
 public struct DecodeOptions: Hashable, Sendable, Codable {

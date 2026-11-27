@@ -11,7 +11,13 @@ public struct LibRawDecoder: RawDecoder {
 
     public init() {}
 
+    /// JPEG XL の DNG は読めない(LibRaw は Adobe DNG SDK なし、rawler 0.8 は未対応)
+    public func unsupportedReason(_ url: URL) -> String? {
+        DNGCompression.isJPEGXL(url) ? DNGCompression.jpegXLReason : nil
+    }
+
     public func decode(_ url: URL, options: DecodeOptions) throws -> DecodedImage {
+        if let reason = unsupportedReason(url) { throw DecoderError.failed("\(displayName): \(reason)") }
         let start = Date()
         let raw = try open(url)
         defer { libraw_close(raw) }

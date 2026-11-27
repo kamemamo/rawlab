@@ -414,7 +414,7 @@ struct AdjustPanel: View {
                             .aspectRatio(1.5, contentMode: .fit)
                             .frame(maxHeight: .infinity)
                             .overlay {
-                                Text("このデコーダーでは\n開けません")
+                                Text(d.reason.map { "このデコーダーは\n\($0)" } ?? "このデコーダーでは\n開けません")
                                     .font(.caption).multilineTextAlignment(.center)
                                     .foregroundStyle(.white.opacity(0.5))
                             }
@@ -604,8 +604,14 @@ struct PreviewArea: View {
         }
         .overlay(alignment: .bottomLeading) {
             if let id = model.previewDecoderID, id != model.decoderID {
-                Text("\(model.displayName(for: model.decoderID)) で開けなかったため \(model.displayName(for: id)) で表示中")
-                    .font(.caption).foregroundStyle(.orange).padding(16)
+                if let reason = model.decoderUnsupportedReason {
+                    // 壊れているわけではないので、注意の色にしない
+                    Text("\(model.displayName(for: model.decoderID)) は \(reason)のため \(model.displayName(for: id)) で表示中")
+                        .font(.caption).foregroundStyle(.white.opacity(0.6)).padding(16)
+                } else {
+                    Text("\(model.displayName(for: model.decoderID)) で開けなかったため \(model.displayName(for: id)) で表示中")
+                        .font(.caption).foregroundStyle(.orange).padding(16)
+                }
             }
         }
     }
