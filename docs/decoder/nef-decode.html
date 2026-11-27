@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEF 展開のしくみ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Zen+Kaku+Gothic+New:wght@500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* レイアウト: 1 段組みの技術資料。処理の順に章を並べ、各章に実ファイル(D5_sample.NEF)の値と図を添える */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --ink: #1b2230;
+  --muted: #5b6577;
+  --line: #d9dee7;
+  --accent: #2b4f8c;
+  --accent-soft: #e4ebf6;
+  --code-bg: #eef1f6;
+  --r: #c4463f;
+  --g: #3d8b4f;
+  --b: #3a64b8;
+  --r-soft: #f6dedc;
+  --g-soft: #dcefe0;
+  --b-soft: #dde6f6;
+  --ok: #2f7d4a;
+  --font-display: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  --font-body: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12161d; --surface: #1a1f28; --ink: #e4e8ef; --muted: #9aa4b5; --line: #2d3442;
+    --accent: #8fb0ec; --accent-soft: #223252; --code-bg: #212836;
+    --r: #e0786f; --g: #74c287; --b: #84a6ea;
+    --r-soft: #3d2423; --g-soft: #1f3526; --b-soft: #213049; --ok: #74c287;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12161d; --surface: #1a1f28; --ink: #e4e8ef; --muted: #9aa4b5; --line: #2d3442;
+  --accent: #8fb0ec; --accent-soft: #223252; --code-bg: #212836;
+  --r: #e0786f; --g: #74c287; --b: #84a6ea;
+  --r-soft: #3d2423; --g-soft: #1f3526; --b-soft: #213049; --ok: #74c287;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.8;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 64px;
+}
+.wrap { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+header.top { padding-block: 48px 8px; display: flex; flex-direction: column; gap: 14px; border-bottom: 1px solid var(--line); padding-bottom: 28px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; color: var(--accent); text-transform: uppercase; }
+h1 { font-family: var(--font-display); font-size: clamp(28px, 5vw, 40px); line-height: 1.3; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--font-display); font-size: 24px; line-height: 1.4; margin: 0; text-wrap: balance; display: flex; gap: 12px; align-items: baseline; }
+h2 .no { font-family: var(--font-mono); font-size: 14px; color: var(--accent); font-weight: 500; }
+h3 { font-family: var(--font-display); font-size: 17px; margin: 8px 0 0; }
+p { margin: 0; max-width: 68ch; }
+.lead { color: var(--muted); font-size: 16px; }
+section { display: flex; flex-direction: column; gap: 16px; }
+code, .mono { font-family: var(--font-mono); font-size: .88em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+a { color: var(--accent); }
+.meta-row { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; color: var(--muted); }
+.meta-row b { color: var(--ink); font-weight: 500; }
+
+/* 目次 */
+nav.toc ol { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 24px; font-size: 14px; }
+nav.toc a { text-decoration: none; color: var(--ink); display: flex; gap: 10px; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); }
+nav.toc .no { font-family: var(--font-mono); color: var(--accent); min-width: 2ch; }
+
+/* パイプライン */
+.pipe { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; counter-reset: step; }
+.stage { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.stage .k { font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: .04em; }
+.stage .t { font-weight: 700; font-size: 14px; line-height: 1.5; }
+.stage .d { font-size: 12.5px; color: var(--muted); line-height: 1.6; }
+.stage.own { border-color: var(--accent); background: var(--accent-soft); }
+.stage.shared { border-style: dashed; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 12.5px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--line); display: inline-block; }
+.sw.own { background: var(--accent-soft); border-color: var(--accent); }
+.sw.shared { border-style: dashed; background: var(--surface); }
+
+/* ファイルの地図 */
+.filemap { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.fm { display: grid; grid-template-columns: 110px 1fr; gap: 0; border-top: 1px solid var(--line); }
+.fm:first-child { border-top: 0; }
+.fm .off { font-family: var(--font-mono); font-size: 12px; color: var(--muted); padding: 10px 12px; border-right: 1px solid var(--line); background: var(--code-bg); font-variant-numeric: tabular-nums; }
+.fm .body { padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fm .name { font-weight: 700; font-size: 14px; }
+.fm .desc { font-size: 13px; color: var(--muted); }
+.fm.raw .body { background: var(--accent-soft); }
+.fm .bar { height: 6px; border-radius: 3px; background: var(--accent); opacity: .8; margin-top: 6px; }
+
+/* 表 */
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font-size: 12px; color: var(--muted); font-weight: 500; letter-spacing: .03em; background: var(--code-bg); white-space: nowrap; }
+td.mono, td .mono { font-family: var(--font-mono); font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 12.5px; }
+
+/* バイトの並び */
+.bytes { display: flex; flex-wrap: wrap; gap: 4px; }
+.byte { font-family: var(--font-mono); font-size: 12.5px; border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; background: var(--surface); display: flex; flex-direction: column; align-items: center; min-width: 40px; }
+.byte small { font-family: var(--font-body); font-size: 10.5px; color: var(--muted); }
+.entry { display: grid; grid-template-columns: 2fr 2fr 4fr 4fr; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); font-size: 12.5px; }
+.entry > div { padding: 8px 10px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.entry > div:last-child { border-right: 0; }
+.entry b { font-family: var(--font-mono); font-weight: 500; }
+.entry span { color: var(--muted); font-size: 11.5px; }
+
+/* 予測の図 */
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 10px; overflow-x: auto; }
+.figure figcaption, .cap { font-size: 12.5px; color: var(--muted); }
+figure { margin: 0; }
+svg text { font-family: var(--font-mono); }
+
+/* コード・式 */
+pre { margin: 0; background: var(--code-bg); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7; }
+.formula { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; padding: 12px 16px; font-family: var(--font-mono); font-size: 13px; overflow-x: auto; line-height: 1.9; }
+
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.cols > * { min-width: 0; }
+.note { font-size: 13px; color: var(--muted); border-left: 2px solid var(--line); padding-left: 12px; }
+.pill { display: inline-block; font-size: 11.5px; padding: 1px 8px; border-radius: 999px; background: var(--g-soft); color: var(--ok); font-weight: 500; white-space: nowrap; }
+.pill.warn { background: var(--r-soft); color: var(--r); }
+.pill.na { background: var(--code-bg); color: var(--muted); }
+
+.cfa { display: inline-grid; grid-template-columns: repeat(2, 28px); gap: 2px; vertical-align: middle; }
+.cfa i { font-style: normal; font-family: var(--font-mono); font-size: 12px; text-align: center; line-height: 28px; border-radius: 3px; font-weight: 500; }
+.R { background: var(--r-soft); color: var(--r); }
+.G { background: var(--g-soft); color: var(--g); }
+.B { background: var(--b-soft); color: var(--b); }
+
+ul.plain { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; max-width: 70ch; }
+footer { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 20px; }
+
+@media (max-width: 560px) {
+  .fm { grid-template-columns: 1fr; }
+  .fm .off { border-right: 0; border-bottom: 1px solid var(--line); padding: 6px 12px; }
+  .entry { grid-template-columns: 1fr 1fr; }
+  .entry > div:nth-child(2) { border-right: 0; }
+  .entry > div:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div class="eyebrow">RawLab ネイティブ デコーダー · 技術資料</div>
+  <h1>NEF 展開のしくみ</h1>
+  <p class="lead">ニコンの RAW ファイル(NEF)を、外部ライブラリを使わずにリニアな RGB 画像にするまでの手順と、ファイルの中の構造をまとめた資料です。数値はすべてサンプル <code>samples/D5_sample.NEF</code>(Nikon D5、圧縮 14bit。<a href="https://raw.pixls.us/data/Nikon/D5/">raw.pixls.us</a> の LV5_4402.NEF と同じファイルで、リポジトリには入れていない)から実際に読んだものです。</p>
+  <div class="meta-row">
+    <span>ブランチ <b>native-decoder</b></span>
+    <span>コード <b>Sources/DecoderKit/Native/</b></span>
+    <span>デコーダー id <b>native</b></span>
+  </div>
+</header>
+
+<nav class="toc" aria-label="目次">
+  <ol>
+    <li><a href="#flow"><span class="no">1</span>全体の流れ</a></li>
+    <li><a href="#tiff"><span class="no">2</span>NEF ファイルの構造</a></li>
+    <li><a href="#makernote"><span class="no">3</span>メーカーノート</a></li>
+    <li><a href="#huffman"><span class="no">4</span>圧縮の展開</a></li>
+    <li><a href="#curve"><span class="no">5</span>変換カーブと形式の違い</a></li>
+    <li><a href="#levels"><span class="no">6</span>黒・白レベルと WB</a></li>
+    <li><a href="#color"><span class="no">7</span>色行列</a></li>
+    <li><a href="#demosaic"><span class="no">8</span>デモザイクから画像へ</a></li>
+    <li><a href="#verify"><span class="no">9</span>検証の結果</a></li>
+    <li><a href="#files"><span class="no">10</span>コードの対応と制限</a></li>
+  </ol>
+</nav>
+
+<!-- 1 -->
+<section id="flow">
+  <h2><span class="no">1</span>全体の流れ</h2>
+  <p>デコーダーの仕事は「リニア(トーンカーブなし)・デモザイク済み・撮影時の WB 適用済みの RGB」を返すことです。前半の「読む」部分が今回新しく自前で書いたところで、後半は RawLab エンジンと同じ処理(<code>BayerMosaic</code>)を共有しています。</p>
+  <div class="pipe">
+    <div class="stage own"><span class="k">TIFFReader</span><span class="t">TIFF の IFD をたどる</span><span class="d">バイト順・IFD0・SubIFD・EXIF</span></div>
+    <div class="stage own"><span class="k">NikonNEF</span><span class="t">RAW 本体を見つける</span><span class="d">CFA の IFD、サイズ、色配置、データの位置</span></div>
+    <div class="stage own"><span class="k">NikonNEF</span><span class="t">メーカーノートを読む</span><span class="d">黒レベル・WB・圧縮の版と予測値</span></div>
+    <div class="stage own"><span class="k">NikonNEF.decode</span><span class="t">展開する</span><span class="d">ハフマン符号 + 差分予測 + 変換カーブ</span></div>
+    <div class="stage own"><span class="k">CameraColor</span><span class="t">色行列を求める</span><span class="d">XYZ→カメラ から カメラ→sRGB と昼光 WB</span></div>
+    <div class="stage shared"><span class="k">BayerMosaic</span><span class="t">黒レベル → WB</span><span class="d">0〜1 に正規化して色ごとに倍率</span></div>
+    <div class="stage shared"><span class="k">Demosaic</span><span class="t">デモザイク</span><span class="d">Malvar-He-Cutler / バイリニア / 半分サイズ</span></div>
+    <div class="stage shared"><span class="k">BayerMosaic</span><span class="t">色変換 → 向き</span><span class="d">リニア sRGB の CIImage</span></div>
+  </div>
+  <div class="legend">
+    <span><i class="sw own"></i>今回自前で書いた部分(以前は LibRaw が担当)</span>
+    <span><i class="sw shared"></i>RawLab エンジンと共通の部分</span>
+  </div>
+</section>
+
+<!-- 2 -->
+<section id="tiff">
+  <h2><span class="no">2</span>NEF ファイルの構造</h2>
+  <p>NEF は TIFF の形式を土台にしています。先頭 8 バイトのヘッダーがバイト順と最初の IFD(Image File Directory、タグの一覧)の位置を示し、そこから IFD を順にたどると、プレビュー用の JPEG、RAW 本体、撮影情報が見つかります。</p>
+
+  <h3>ヘッダー(先頭 8 バイト)</h3>
+  <div class="bytes" aria-label="ファイル先頭のバイト">
+    <div class="byte">49<small>I</small></div>
+    <div class="byte">49<small>I</small></div>
+    <div class="byte">2A<small>42</small></div>
+    <div class="byte">00<small>&nbsp;</small></div>
+    <div class="byte">08<small>IFD0</small></div>
+    <div class="byte">00<small>&nbsp;</small></div>
+    <div class="byte">00<small>&nbsp;</small></div>
+    <div class="byte">00<small>&nbsp;</small></div>
+  </div>
+  <p class="cap">「II」はリトルエンディアン(古い機種の NEF は「MM」= ビッグエンディアン)。続く 42 は TIFF の目印、最後の 4 バイトが IFD0 の位置(8 バイト目)です。</p>
+
+  <h3>IFD のエントリー(1 つ 12 バイト)</h3>
+  <div class="entry" role="group" aria-label="IFD エントリーの構造">
+    <div><b>タグ</b><span>2 バイト。例 0x0100 = 幅</span></div>
+    <div><b>型</b><span>2 バイト。3 = SHORT、4 = LONG、5 = 有理数</span></div>
+    <div><b>個数</b><span>4 バイト。値がいくつ並ぶか</span></div>
+    <div><b>値 または 位置</b><span>4 バイトに収まれば値そのもの、収まらなければ値のある位置</span></div>
+  </div>
+  <p class="cap">IFD は「エントリーの数(2 バイト)+ エントリー × 個数 + 次の IFD の位置(4 バイト)」の並びです。<code>TIFFReader.ifd(at:)</code> がこれを読みます。</p>
+
+  <h3>D5_sample.NEF の地図</h3>
+  <div class="filemap">
+    <div class="fm"><div class="off">0</div><div class="body"><span class="name">TIFF ヘッダー</span><span class="desc">II・42・IFD0 は 8 バイト目</span></div></div>
+    <div class="fm"><div class="off">8</div><div class="body"><span class="name">IFD0(28 エントリー)</span><span class="desc">Make「NIKON CORPORATION」、Model「NIKON D5」、Orientation 1、SubIFDs(タグ 330)= 3 つ、EXIF の位置(タグ 34665)、160×120 のサムネイル</span></div></div>
+    <div class="fm"><div class="off">12,904</div><div class="body"><span class="name">EXIF IFD(36 エントリー)</span><span class="desc">露出 1/125 秒、F5.6、ISO 400、14mm、撮影日時。MakerNote(タグ 37500)の位置</span></div></div>
+    <div class="fm"><div class="off">13,500</div><div class="body"><span class="name">メーカーノート(203,414 バイト)</span><span class="desc">ニコン独自のタグ群。黒レベル・WB・圧縮の展開に要る値がここにある(次の章)</span></div></div>
+    <div class="fm"><div class="off">274,532</div><div class="body"><span class="name">SubIFD 1:プレビュー JPEG</span><span class="desc">NewSubfileType 1(縮小画像)、Compression 6(JPEG)</span></div></div>
+    <div class="fm raw"><div class="off">274,652</div><div class="body"><span class="name">SubIFD 2:RAW 本体の IFD</span><span class="desc">NewSubfileType 0、Photometric 32803(CFA)、5584 × 3728、14bit、Compression 34713(ニコン独自)、CFAPattern <span class="cfa" aria-label="RGGB"><i class="R">R</i><i class="G">G</i><i class="G">G</i><i class="B">B</i></span></span></div></div>
+    <div class="fm"><div class="off">274,880</div><div class="body"><span class="name">SubIFD 3:もう 1 枚の JPEG</span><span class="desc">Compression 6</span></div></div>
+    <div class="fm raw"><div class="off">3,879,424</div><div class="body"><span class="name">RAW 本体のデータ(26,092,371 バイト)</span><span class="desc">StripOffsets / StripByteCounts が指す圧縮されたビット列。ファイル全体(約 30MB)の大半を占める</span><div class="bar" style="width: 87%" aria-hidden="true"></div></div></div>
+  </div>
+  <p class="note">RAW 本体の IFD は「NewSubfileType が 0、かつ PhotometricInterpretation が 32803(CFA)」の IFD として探します。IFD0 と、その SubIFD と、後ろに続く IFD を候補にします。</p>
+
+  <h3>RAW 本体の IFD で使うタグ</h3>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>タグ</th><th>名前</th><th>D5_sample の値</th><th>使い道</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">256 / 257</td><td>ImageWidth / Length</td><td class="mono">5584 / 3728</td><td>展開する画素の数</td></tr>
+        <tr><td class="mono">258</td><td>BitsPerSample</td><td class="mono">14</td><td>ハフマン表の選択、白レベル</td></tr>
+        <tr><td class="mono">259</td><td>Compression</td><td class="mono">34713</td><td>34713 = ニコン圧縮、1 = 非圧縮</td></tr>
+        <tr><td class="mono">273 / 279</td><td>StripOffsets / ByteCounts</td><td class="mono">3,879,424 / 26,092,371</td><td>データの場所と長さ</td></tr>
+        <tr><td class="mono">33421</td><td>CFARepeatPatternDim</td><td class="mono">2, 2</td><td>2×2 のベイヤー配列か確かめる</td></tr>
+        <tr><td class="mono">33422</td><td>CFAPattern</td><td class="mono">0, 1, 1, 2</td><td>左上から R G / G B</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 3 -->
+<section id="makernote">
+  <h2><span class="no">3</span>メーカーノート</h2>
+  <p>EXIF のタグ 37500(MakerNote)の中身はメーカーが自由に決めた領域です。ニコンの形式(タイプ 3)は、先頭に「Nikon」の印と版を置き、その後ろに丸ごと 1 つの TIFF を入れています。中のオフセットはファイルの先頭ではなく、この内側の TIFF ヘッダーから数えます。</p>
+  <div class="bytes" aria-label="メーカーノートの先頭">
+    <div class="byte">4E<small>N</small></div><div class="byte">69<small>i</small></div><div class="byte">6B<small>k</small></div><div class="byte">6F<small>o</small></div><div class="byte">6E<small>n</small></div><div class="byte">00<small>&nbsp;</small></div>
+    <div class="byte">02<small>版</small></div><div class="byte">11<small>版</small></div><div class="byte">00<small>&nbsp;</small></div><div class="byte">00<small>&nbsp;</small></div>
+    <div class="byte" style="border-color: var(--accent)">49<small>I</small></div><div class="byte" style="border-color: var(--accent)">49<small>I</small></div><div class="byte" style="border-color: var(--accent)">2A<small>42</small></div><div class="byte" style="border-color: var(--accent)">00<small>&nbsp;</small></div>
+    <div class="byte" style="border-color: var(--accent)">08<small>IFD</small></div><div class="byte" style="border-color: var(--accent)">00</div><div class="byte" style="border-color: var(--accent)">00</div><div class="byte" style="border-color: var(--accent)">00</div>
+  </div>
+  <p class="cap">10 バイト目(13,510)から内側の TIFF ヘッダーが始まる(枠の色の付いた部分)。<code>TIFFReader(data:headerAt:)</code> でこの位置を基準に読みます。内側の IFD には 69 個のタグがあります。</p>
+
+  <div class="tbl">
+    <table>
+      <thead><tr><th>タグ</th><th>名前</th><th>D5_sample の値</th><th>使い道</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">0x000C</td><td>WB_RBLevels</td><td class="mono">2.4595, 1.4170, 1, 1</td><td>撮影時の WB(R と B の倍率、緑 = 1)</td></tr>
+        <tr><td class="mono">0x003D</td><td>BlackLevel</td><td class="mono">400, 400, 400, 400</td><td>R・G・G・B の黒レベル(14bit の目盛り)</td></tr>
+        <tr><td class="mono">0x0093</td><td>NEFCompression</td><td class="mono">4</td><td>1・4 = 圧縮、3 = ロスレス、2 = 非圧縮(非圧縮では省かれることもある)</td></tr>
+        <tr><td class="mono">0x0096</td><td>NEF の展開データ</td><td class="mono">624 バイト</td><td>圧縮の版・予測の初期値・変換カーブ・split の行</td></tr>
+        <tr><td class="mono">0x0023</td><td>PictureControl</td><td class="mono">STANDARD</td><td>メタデータの表示</td></tr>
+        <tr><td class="mono">0x0084</td><td>Lens</td><td class="mono">14, 24, 2.8, 2.8</td><td>「14-24mm f/2.8」の表示</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>0x0096 の中身</h3>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>位置</th><th>中身</th><th>D5_sample の値</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">+0, +1</td><td>圧縮の版</td><td class="mono">0x44 0x20(圧縮)。ロスレスは 0x46</td></tr>
+        <tr><td class="mono">+2 〜 +9</td><td>予測の初期値 2×2(16bit × 4)</td><td class="mono">1312, 1312, 1312, 1312</td></tr>
+        <tr><td class="mono">+10</td><td>変換カーブの点の数</td><td class="mono">257</td></tr>
+        <tr><td class="mono">+12 〜</td><td>変換カーブの点(16bit × 点の数)</td><td class="mono">0, 64, 128, … 16380, 16383</td></tr>
+        <tr><td class="mono">+562</td><td>split(この行からハフマン表を替える)</td><td class="mono">133</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">16bit の値はメーカーノートのバイト順で読みます。D5 はリトルエンディアンです。最初の実装ではビッグエンディアンを前提にしていて、予測の初期値を 1312 ではなく 8197 と読み違えるところでした。</p>
+</section>
+
+<!-- 4 -->
+<section id="huffman">
+  <h2><span class="no">4</span>圧縮の展開</h2>
+  <p>RAW 本体は「画素の値そのもの」ではなく「予測した値との差」を並べ、その差をハフマン符号で短く書いたビット列です。展開は 1 画素ずつ、次の 3 段で進みます。</p>
+
+  <div class="cols">
+    <div class="stage"><span class="k">1. 符号を読む</span><span class="t">ハフマン符号 → 差のビット数</span><span class="d">先頭のビットを表で引き、符号の長さだけ読み進める。出てくる値(下位 4 ビット)が「差を何ビットで書いたか」</span></div>
+    <div class="stage"><span class="k">2. 差を読む</span><span class="t">そのビット数だけ読む</span><span class="d">先頭ビットが 0 なら負の数(JPEG と同じ書き方)</span></div>
+    <div class="stage"><span class="k">3. 予測に足す</span><span class="t">同じ色の左隣 + 差</span><span class="d">行の先頭 2 画素は、2 行上の行の先頭の値 + 差</span></div>
+  </div>
+
+  <h3>予測のしかた</h3>
+  <figure class="figure">
+    <svg viewBox="0 0 560 220" width="560" height="220" role="img" aria-label="同じ色の左隣から予測する図">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker>
+      </defs>
+      <g font-size="13" text-anchor="middle">
+        <!-- 4 行 × 8 列の RGGB -->
+        <g id="cells">
+          <rect x="40" y="20" width="50" height="40" rx="4" fill="var(--r-soft)"/><text x="65" y="45" fill="var(--r)">R</text>
+          <rect x="95" y="20" width="50" height="40" rx="4" fill="var(--g-soft)"/><text x="120" y="45" fill="var(--g)">G</text>
+          <rect x="150" y="20" width="50" height="40" rx="4" fill="var(--r-soft)"/><text x="175" y="45" fill="var(--r)">R</text>
+          <rect x="205" y="20" width="50" height="40" rx="4" fill="var(--g-soft)"/><text x="230" y="45" fill="var(--g)">G</text>
+          <rect x="260" y="20" width="50" height="40" rx="4" fill="var(--r-soft)"/><text x="285" y="45" fill="var(--r)">R</text>
+          <rect x="315" y="20" width="50" height="40" rx="4" fill="var(--g-soft)"/><text x="340" y="45" fill="var(--g)">G</text>
+
+          <rect x="40" y="65" width="50" height="40" rx="4" fill="var(--g-soft)"/><text x="65" y="90" fill="var(--g)">G</text>
+          <rect x="95" y="65" width="50" height="40" rx="4" fill="var(--b-soft)"/><text x="120" y="90" fill="var(--b)">B</text>
+          <rect x="150" y="65" width="50" height="40" rx="4" fill="var(--g-soft)"/><text x="175" y="90" fill="var(--g)">G</text>
+          <rect x="205" y="65" width="50" height="40" rx="4" fill="var(--b-soft)"/><text x="230" y="90" fill="var(--b)">B</text>
+          <rect x="260" y="65" width="50" height="40" rx="4" fill="var(--g-soft)"/><text x="285" y="90" fill="var(--g)">G</text>
+          <rect x="315" y="65" width="50" height="40" rx="4" fill="var(--b-soft)"/><text x="340" y="90" fill="var(--b)">B</text>
+
+          <rect x="40" y="110" width="50" height="40" rx="4" fill="var(--r-soft)"/><text x="65" y="135" fill="var(--r)">R</text>
+          <rect x="95" y="110" width="50" height="40" rx="4" fill="var(--g-soft)"/><text x="120" y="135" fill="var(--g)">G</text>
+          <rect x="150" y="110" width="50" height="40" rx="4" fill="var(--r-soft)"/><text x="175" y="135" fill="var(--r)">R</text>
+          <rect x="205" y="110" width="50" height="40" rx="4" fill="var(--g-soft)"/><text x="230" y="135" fill="var(--g)">G</text>
+          <rect x="260" y="110" width="50" height="40" rx="4" fill="var(--r-soft)"/><text x="285" y="135" fill="var(--r)">R</text>
+          <rect x="315" y="110" width="50" height="40" rx="4" fill="var(--g-soft)"/><text x="340" y="135" fill="var(--g)">G</text>
+        </g>
+        <!-- 横の予測(同じ色の左隣) -->
+        <path d="M70,12 C 100,0 145,0 172,12" fill="none" stroke="var(--accent)" stroke-width="1.6" marker-end="url(#arr)"/>
+        <path d="M180,12 C 210,0 255,0 282,12" fill="none" stroke="var(--accent)" stroke-width="1.6" marker-end="url(#arr)"/>
+        <path d="M125,12 C 155,0 200,0 227,12" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+        <!-- 縦の予測(行の先頭は 2 行上) -->
+        <path d="M30,40 C 14,70 14,105 36,130" fill="none" stroke="var(--accent)" stroke-width="1.6" marker-end="url(#arr)"/>
+      </g>
+      <g font-size="12" fill="var(--muted)" text-anchor="start" font-family="var(--font-body)">
+        <text x="390" y="34">横: 同じ色の 2 つ左</text>
+        <text x="390" y="52">(hpred。偶数列と奇数列で別々)</text>
+        <text x="390" y="120">行の先頭 2 画素: 2 行上の</text>
+        <text x="390" y="138">先頭の値(vpred。行の偶奇 × 列で 4 つ)</text>
+        <text x="390" y="178">初期値は 0x0096 の +2〜+9</text>
+        <text x="390" y="196">(D5_sample は 4 つとも 1312)</text>
+      </g>
+    </svg>
+    <figcaption>ベイヤー配列では隣の画素は別の色なので、予測には「同じ色で一番近い画素」を使います。行の途中は 2 列左、行の先頭は 2 行上の先頭です。この予測は C の符号なし 16bit の足し算と同じく、桁あふれを切り捨てて計算します(Swift の <code>&amp;+=</code>)。</figcaption>
+  </figure>
+
+  <h3>ハフマン表</h3>
+  <p>表は dcraw / LibRaw と同じ 6 種類で、「各符号長の符号がいくつあるか(16 個)」と「出てくる値の並び」で表します。この並びから、符号長の短い順に連番で符号を割り当てます(カノニカル・ハフマン)。展開では先頭の最大符号長ぶんのビットを 1 回で引く表を作っておき、1 画素につき 1 回の表引きで済ませます。</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>表</th><th>使う場面</th><th>最大符号長</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">0</td><td>12bit 圧縮</td><td class="num">10</td></tr>
+        <tr><td class="mono">1</td><td>12bit 圧縮(split の行から)</td><td class="num">10</td></tr>
+        <tr><td class="mono">2</td><td>12bit ロスレス</td><td class="num">7</td></tr>
+        <tr><td class="mono">3</td><td>14bit 圧縮 ← D5_sample の 0〜132 行</td><td class="num">10</td></tr>
+        <tr><td class="mono">4</td><td>14bit 圧縮(split の行から)← D5_sample の 133 行目以降</td><td class="num">11</td></tr>
+        <tr><td class="mono">5</td><td>14bit ロスレス</td><td class="num">8</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>例:14bit 圧縮(表 3)の符号</h3>
+  <div class="cols">
+    <div class="tbl">
+      <table>
+        <thead><tr><th>符号</th><th>差のビット数</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">00</td><td class="num">5</td></tr>
+          <tr><td class="mono">010</td><td class="num">6</td></tr>
+          <tr><td class="mono">011</td><td class="num">4</td></tr>
+          <tr><td class="mono">100</td><td class="num">7</td></tr>
+          <tr><td class="mono">101</td><td class="num">8</td></tr>
+          <tr><td class="mono">1100 / 1101 / 1110</td><td class="num">3 / 9 / 2</td></tr>
+          <tr><td class="mono">11110 / 111110</td><td class="num">1 / 0</td></tr>
+          <tr><td class="mono">1111110 〜 1111111111</td><td class="num">10 〜 14</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:10px; min-width:0">
+      <p>ビット列 <code>011 0101</code> の場合:</p>
+      <div class="formula">符号 011 → 差は 4 ビット<br>次の 4 ビット 0101 = 5<br>先頭ビットが 0 なので負の数<br>差 = 5 − (2⁴ − 1) = −10</div>
+      <p>ビット列 <code>011 1010</code> なら、1010 = 10 で先頭ビットが 1 なので、差 = +10 です。</p>
+    </div>
+  </div>
+  <p class="note">split 以降の表(1 と 4)には、値の上位 4 ビットに「省いた下位ビットの数」(shl)を持つ符号が混ざります。この場合は (ビット数 − shl) ビットだけ読み、左に shl ビットずらして真ん中の値で埋めます。明るい部分の大きな差を、粗い刻みで短く書くためのしくみです。</p>
+</section>
+
+<!-- 5 -->
+<section id="curve">
+  <h2><span class="no">5</span>変換カーブと形式の違い</h2>
+  <p>圧縮(非可逆)の NEF では、展開して得た値(0〜約 3,000)をそのまま使わず、変換カーブに通して 14bit の値(0〜16,383)に戻します。暗い部分は 1 対 1、明るくなるほど 1 段の幅が広がる形で、明るいほど光のノイズ(ショットノイズ)も大きくなるので、見分けられない細かい段を間引いていると考えられます。D5_sample のカーブは 257 点で、点の間隔は 64 です。点の間は直線で補います。</p>
+  <figure class="figure">
+    <svg viewBox="0 0 560 300" width="560" height="300" role="img" aria-label="D5_sample.NEF の変換カーブ">
+      <g font-size="11" fill="var(--muted)">
+        <!-- 格子: x 0〜3584 (1px = 3584/440), y 0〜16383 (1px = 16383/240) -->
+        <g stroke="var(--line)" stroke-width="1">
+          <line x1="70" y1="260" x2="510" y2="260"/>
+          <line x1="70" y1="20" x2="70" y2="260"/>
+          <line x1="70" y1="200" x2="510" y2="200" stroke-dasharray="2 4"/>
+          <line x1="70" y1="140" x2="510" y2="140" stroke-dasharray="2 4"/>
+          <line x1="70" y1="80" x2="510" y2="80" stroke-dasharray="2 4"/>
+          <line x1="70" y1="20.2" x2="510" y2="20.2" stroke-dasharray="2 4"/>
+        </g>
+        <g text-anchor="end">
+          <text x="62" y="264">0</text>
+          <text x="62" y="204">4096</text>
+          <text x="62" y="144">8192</text>
+          <text x="62" y="84">12288</text>
+          <text x="62" y="24">16383</text>
+        </g>
+        <g text-anchor="middle">
+          <text x="70" y="278">0</text>
+          <text x="195.7" y="278">1024</text>
+          <text x="321.4" y="278">2048</text>
+          <text x="447.1" y="278">3072</text>
+          <text x="290" y="296" font-family="var(--font-body)">展開した値</text>
+        </g>
+        <text x="16" y="140" transform="rotate(-90 16 140)" text-anchor="middle" font-family="var(--font-body)">生の値(14bit)</text>
+      </g>
+      <!-- 1 対 1 の参考線 -->
+      <line x1="70" y1="260" x2="510" y2="207.5" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 4"/>
+      <polyline fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linejoin="round" points="70.0,260.0 77.9,259.1 85.7,258.1 93.6,257.2 101.4,256.2 109.3,255.3 117.1,254.4 125.0,253.4 132.9,251.6 140.7,249.7 148.6,247.9 156.4,246.0 164.3,244.0 172.1,241.2 180.0,238.4 187.9,235.6 195.7,232.8 203.6,229.3 211.4,225.5 219.3,221.8 227.1,218.0 235.0,213.9 242.9,209.3 250.7,204.6 258.6,199.9 266.4,195.0 274.3,189.4 282.1,183.8 290.0,178.1 297.9,172.4 305.7,165.9 313.6,159.3 321.4,152.8 329.3,146.2 337.1,138.7 345.0,131.2 352.9,123.7 360.7,116.2 368.6,107.9 376.4,99.4 384.3,91.0 392.1,82.5 400.0,73.3 407.9,63.9 415.7,54.5 423.6,45.2 431.4,35.0 439.3,24.6 447.1,20.0 455.0,20.0 462.9,20.0 470.7,20.0 478.6,20.0 486.4,20.0 494.3,20.0 502.1,20.0 510.0,20.0"/>
+      <circle cx="447.1" cy="20.1" r="3.5" fill="var(--accent)"/>
+      <g font-size="11.5" font-family="var(--font-body)">
+        <text x="140" y="236" fill="var(--muted)">448 までは 1 対 1</text>
+        <text x="300" y="40" fill="var(--ink)">3072 で 16380 に達する</text>
+      </g>
+    </svg>
+    <figcaption>D5_sample.NEF の 0x0096 から読んだ変換カーブ(64 ごとの点、3584 まで)。点線は 1 対 1 の線。14bit の 16,384 段を約 3,072 段に縮めて記録しています。</figcaption>
+  </figure>
+
+  <h3>3 つの形式の違い</h3>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>形式</th><th>TIFF の Compression</th><th>0x0096 の版</th><th>中身</th><th>自前の実装</th></tr></thead>
+      <tbody>
+        <tr><td>圧縮(非可逆)</td><td class="mono">34713</td><td class="mono">0x44 0x20</td><td>ハフマン + 予測 + 変換カーブ、途中の行で表を替える</td><td><span class="pill">対応</span></td></tr>
+        <tr><td>ロスレス圧縮</td><td class="mono">34713</td><td class="mono">0x46</td><td>ハフマン + 予測のみ。展開した値がそのまま生の値</td><td><span class="pill">対応</span></td></tr>
+        <tr><td>非圧縮</td><td class="mono">1</td><td class="mono">—</td><td>1 画素 16bit(ファイルのバイト順)、下位 14bit が値</td><td><span class="pill">対応</span></td></tr>
+        <tr><td>非圧縮(12bit を詰めた形)</td><td class="mono">1</td><td class="mono">—</td><td>2 画素を 3 バイトに詰める</td><td><span class="pill na">未対応</span></td></tr>
+        <tr><td>古い版の圧縮</td><td class="mono">34713</td><td class="mono">0x44 0x40、0x49 など</td><td>カーブの持ち方が違う</td><td><span class="pill na">未対応</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">展開の途中で値が範囲(最大値 + split 以降の余裕)を超えたり、データの終わりより先まで読んだりしたら、壊れたファイルとしてエラーにします。</p>
+</section>
+
+<!-- 6 -->
+<section id="levels">
+  <h2><span class="no">6</span>黒・白レベルとホワイトバランス</h2>
+  <p>展開した生の値には、光が当たっていなくても乗る「黒レベル」の分が足されています。黒レベルを引き、白レベル(飽和の値)で割って 0〜1 にし、撮影時の WB の倍率を色ごとに掛けます。</p>
+  <div class="formula">v = (生の値 − 黒) ÷ (白 − 黒)<br>v' = min(v × WB[色], 1)<br><br>D5_sample: 黒 = 400、白 = 2¹⁴ − 1 = 16383、WB = R 2.4595 / G 1 / B 1.4170</div>
+  <div class="cols">
+    <div class="stage"><span class="k">黒レベル(0x003D)</span><span class="t">R・G・G・B の順の 4 つの値</span><span class="d">2×2 の位置ごとに割り当てる。値は 14bit の目盛りなので、12bit のファイルでは 4 で割る(D500 の 12bit ロスレスで 400 → 100。LibRaw と同じ)</span></div>
+    <div class="stage"><span class="k">白レベル</span><span class="t">ビット数から 2ⁿ − 1</span><span class="d">RawLab エンジン(LibRaw の maximum)と同じ値</span></div>
+    <div class="stage"><span class="k">WB(0x000C)</span><span class="t">R と B の倍率</span><span class="d">緑を 1 とした値。「撮影時の WB を使う」をオフにすると、色行列から求めた昼光の WB を使う</span></div>
+  </div>
+  <p class="note">白飛びを「色を補って復元」にしたときは、WB を掛ける前に 1 で頭打ちにして、色ごとの飽和の値(WB の倍率)を残します。この先の処理は RawLab エンジンと共通です。</p>
+</section>
+
+<!-- 7 -->
+<section id="color">
+  <h2><span class="no">7</span>色行列</h2>
+  <p>カメラのセンサーの R・G・B は、人の目や sRGB の R・G・B とは感度の形が違います。この違いをカメラごとの 3×3 の行列で直します。NEF の中にはこの行列が入っていないので、Adobe DNG Converter が NEF を DNG にするときに書き込む ColorMatrix2(D65 光源での XYZ → カメラ)をコードに持たせています。dcraw と LibRaw の表にも同じ値があり、LibRaw が D5_sample.NEF で返す値と一致することを確かめました。</p>
+  <div class="cols">
+    <div class="tbl">
+      <table>
+        <thead><tr><th colspan="3">D5 の ColorMatrix2(× 1/10000)</th></tr></thead>
+        <tbody>
+          <tr><td class="num">9200</td><td class="num">−3522</td><td class="num">−992</td></tr>
+          <tr><td class="num">−5755</td><td class="num">13803</td><td class="num">2117</td></tr>
+          <tr><td class="num">−753</td><td class="num">1486</td><td class="num">6338</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="tbl">
+      <table>
+        <thead><tr><th colspan="3">求めた カメラ(WB 後)→ リニア sRGB</th></tr></thead>
+        <tbody>
+          <tr><td class="num">1.3914</td><td class="num">−0.2521</td><td class="num">−0.1394</td></tr>
+          <tr><td class="num">−0.1032</td><td class="num">1.4264</td><td class="num">−0.3232</td></tr>
+          <tr><td class="num">−0.0030</td><td class="num">−0.3632</td><td class="num">1.3663</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="formula">① sRGB → カメラ = ColorMatrix2 × (sRGB → XYZ)<br>② 各行を合計 1 にそろえる(白 (1,1,1) が白に写るように)<br>③ そろえる前の各行の合計の逆数 = 昼光の WB(緑 = 1 で 2.568 / 1 / 1.387)<br>④ カメラ → sRGB = ② の逆行列</div>
+  <p class="note">dcraw の <code>cam_xyz_coeff</code> と同じ考え方です。求めた行列は LibRaw の <code>rgb_cam</code> と小数第 4 位まで一致しました。対応機種を増やすには、<code>CameraColor.matrices</code> に機種名と行列を足します。</p>
+</section>
+
+<!-- 8 -->
+<section id="demosaic">
+  <h2><span class="no">8</span>デモザイクから画像へ</h2>
+  <p>ここから先は RawLab エンジンと同じ <code>BayerMosaic.develop</code> を通ります。各画素には 1 色の値しかないので、周りの画素から残り 2 色を補います。</p>
+  <ul class="plain">
+    <li><b>Malvar-He-Cutler</b>(既定): 5×5 の範囲の線形補間に、同じ色の勾配で補正をかける。補間で飽和の値を超えないよう、色ごとに上限をかける</li>
+    <li><b>バイリニア</b>(デモザイクで LINEAR を選んだとき): 上下左右・斜めの平均</li>
+    <li><b>スーパーピクセル</b>(半分サイズのプレビュー): 2×2 を 1 画素にまとめる。補間しないので速い</li>
+    <li>白飛びの復元(選んだとき)→ 色行列でリニア sRGB に → TIFF の Orientation で向きを直す → <code>CIImage</code>(RGBA の 32bit 浮動小数)</li>
+  </ul>
+  <p>返した画像は、露出やトーンなどを共通の <code>DevelopPipeline</code> が受け持つので、デコーダーを替えても同じ設定で比べられます。</p>
+</section>
+
+<!-- 9 -->
+<section id="verify">
+  <h2><span class="no">9</span>検証の結果</h2>
+  <p>展開した生の値は、同じファイルを LibRaw 0.22.3 で展開した値と、全画素をバイト単位で比べました。最後まで現像した結果は、同じ値を LibRaw から読む RawLab エンジンの結果と比べています。</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>ファイル</th><th>形式</th><th>生の値(LibRaw と)</th><th>現像結果(RawLab エンジンと)</th><th>展開</th></tr></thead>
+      <tbody>
+        <tr><td>D5_sample.NEF(= raw.pixls.us の LV5_4402.NEF)</td><td>D5・圧縮 14bit</td><td><span class="pill">ビット単位で一致</span></td><td class="mono">8bit で最大差 1</td><td class="num">0.10 秒</td></tr>
+        <tr><td>raw.pixls.us の D5</td><td>D5・非圧縮 14bit</td><td><span class="pill">ビット単位で一致</span></td><td class="mono">8bit で最大差 1</td><td class="num">0.03 秒</td></tr>
+        <tr><td>raw.pixls.us の D500</td><td>D500・ロスレス 14bit</td><td><span class="pill">ビット単位で一致</span></td><td class="mono">8bit で最大差 1 ※</td><td class="num">0.12 秒</td></tr>
+        <tr><td>raw.pixls.us の D500</td><td>D500・ロスレス 12bit</td><td><span class="pill">ビット単位で一致</span></td><td class="mono">8bit で最大差 1 ※</td><td class="num">0.10 秒</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="cap">※ D500 は色行列を一時的に足して確かめた(コミットはしていない)。D5 で撮ったロスレス NEF はまだ試していない。時間はリリースビルドでの展開のみ。デコード全体(デモザイク・色変換まで)は D5_sample で 0.21 秒、RawLab エンジンは 0.32 秒、LibRaw は 0.47 秒。</p>
+  <p>LibRaw の現像結果とは、明るさの平均の差が 1/255 未満、画素ごとの平均の差が 3/255 です。差の多くはデモザイクの方式の違いによるものです。最大差 1 は、色行列の計算の精度(LibRaw は単精度、自前は倍精度)の違いによるものと考えられます。</p>
+</section>
+
+<!-- 10 -->
+<section id="files">
+  <h2><span class="no">10</span>コードの対応と制限</h2>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">Native/TIFFReader.swift</td><td>TIFF ヘッダー・IFD・値の型の読み出し。メーカーノートの内側の TIFF も同じ型で読む</td></tr>
+        <tr><td class="mono">Native/NikonNEF.swift</td><td>RAW 本体の IFD・EXIF・メーカーノートの解析、3 形式の展開、非対応の理由</td></tr>
+        <tr><td class="mono">Native/CameraColor.swift</td><td>機種ごとの ColorMatrix2 と、カメラ → sRGB の行列・昼光 WB の計算</td></tr>
+        <tr><td class="mono">Native/NativeDecoder.swift</td><td><code>RawDecoder</code> の実装、非対応の判定(ファイルごとに覚えておく)、メタデータ</td></tr>
+        <tr><td class="mono">BayerMosaic.swift</td><td>黒レベル → WB → デモザイク → 色変換 → 向き(RawLab エンジンと共通)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>開く前に「非対応」と表示するもの</h3>
+  <ul class="plain">
+    <li>拡張子が NEF / NRW でないファイル</li>
+    <li>色行列を持っていない機種(いまは D5 だけ持っている)</li>
+    <li>12bit を詰めた非圧縮、古い版の圧縮、12・14bit 以外</li>
+    <li>メーカーノートに黒レベル・撮影時の WB・展開データがないもの</li>
+  </ul>
+  <p class="note">判定は TIFF とメーカーノートの解析だけで済み、画素の展開はしません。アプリでは、非対応のデコーダーは開く前にその理由を表示します。</p>
+</section>
+
+<footer>
+  参考にした手順: dcraw / LibRaw の <span class="mono">nikon_load_raw</span>(展開)、<span class="mono">cam_xyz_coeff</span>(色行列)、TIFF 6.0 と ExifTool のニコンのタグの説明。コードは参考にした手順を見ながら Swift で書き直したもので、外部ライブラリは使っていない。
+</footer>
+
+</div>
+</body>
+</html>
