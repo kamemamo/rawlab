@@ -10,6 +10,12 @@ enum CameraColor {
     /// 同じ値が載っている(LibRaw 0.22.3 が D5_sample.NEF で返す cam_xyz と一致することを確認済み)。
     static let matrices: [String: [Double]] = [
         "NIKON D5": [9200, -3522, -992, -5755, 13803, 2117, -753, 1486, 6338],
+        "NIKON D800": [7866, -2108, -555, -4869, 12483, 2681, -1176, 2069, 7501],
+    ]
+
+    /// 右端に使わない列がある機種の、見える幅(LibRaw と同じ値)
+    static let visibleWidth: [String: Int] = [
+        "NIKON D800": 6162,
     ]
 
     static var supportedModels: [String] { matrices.keys.sorted() }

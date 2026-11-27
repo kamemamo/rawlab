@@ -7,7 +7,7 @@ import ImageIO
 /// 黒・白レベル、WB 係数、色の行列までを Swift で行い、
 /// その先(WB → デモザイク → 色の変換)は RawLab エンジンと同じ処理(BayerMosaic)を通す。
 ///
-/// - 対応: ニコンの NEF(圧縮・ロスレス圧縮・非圧縮)のうち、色の値を持っている機種(いまは D5)
+/// - 対応: ニコンの NEF(圧縮・ロスレス圧縮・非圧縮)のうち、色の値を持っている機種(いまは D5・D800)
 /// - 対応: DNG(ベイヤー配列と、デモザイク済みの RGB = iPhone の ProRAW など)。
 ///   非圧縮・ロスレス JPEG・JPEG XL(展開だけ macOS の ImageIO)。色の値はファイルの中にあるので機種を問わない
 /// - 未対応のものは開く前に `unsupportedReason` で理由を返す
@@ -92,7 +92,6 @@ public struct NativeDecoder: RawDecoder {
             let supported = CameraColor.supportedModels.map(cleanModel).joined(separator: "・")
             return "\(cleanModel(nef.model)) の色の値を持っていないため未対応(対応: \(supported))"
         }
-        guard nef.blackLevel != nil else { return "黒レベルがメーカーノートにないため未対応" }
         guard nef.asShotRB != nil else { return "撮影時の WB がメーカーノートにないため未対応" }
         return nil
     }
@@ -106,10 +105,18 @@ public struct NativeDecoder: RawDecoder {
     private static func mosaic(_ nef: NikonNEF) throws -> BayerMosaic {
         guard let camXYZ = CameraColor.matrices[nef.model.uppercased()],
               let color = CameraColor.conversion(cameraFromXYZ: camXYZ.map { $0 / 10000 }),
-              let blackLevel = nef.blackLevel, let rb = nef.asShotRB
+              let rb = nef.asShotRB
         else { throw DecoderError.failed("RawLab ネイティブ: \(unsupportedReason(nef) ?? "未対応")") }
 
-        let raw = try nef.decode()
+        var raw = try nef.decode()
+        // 右端の使わない列を落とす(D800 など)
+        var width = nef.width
+        if let visible = CameraColor.visibleWidth[nef.model.uppercased()], visible < width {
+            raw = (0..<nef.height).flatMap { y in raw[(y * width)..<(y * width + visible)] }
+            width = visible
+        }
+        // 黒レベルがメーカーノートにない機種(D800 など)は 0(LibRaw も同じ)
+        let blackLevel = nef.blackLevel ?? [0, 0, 0, 0]
 
         // 黒レベルは R, G(R の行), G(B の行), B の順。2×2 の位置ごとに割り当てる。
         // メーカーノートの値は 14bit の目盛りなので、12bit のファイルでは 1/4 にする
@@ -127,7 +134,7 @@ public struct NativeDecoder: RawDecoder {
         }
 
         return BayerMosaic(
-            width: nef.width, height: nef.height,
+            width: width, height: nef.height,
             pattern: pattern,
             raw: raw,
             blackForPosition: blackForPosition,
@@ -226,7 +233,7 @@ public struct NativeDecoder: RawDecoder {
             meta.make = nef.make.uppercased().hasPrefix("NIKON") ? "Nikon" : nef.make
             meta.model = cleanModel(nef.model)
             e = nef.exif
-            size = (nef.width, nef.height)
+            size = (CameraColor.visibleWidth[nef.model.uppercased()].map { min($0, nef.width) } ?? nef.width, nef.height)
             orientation = nef.orientation
         case .dng(let dng):
             meta.make = dng.make
