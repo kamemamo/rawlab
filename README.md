@@ -87,7 +87,7 @@ VERSION=0.1.0 ./scripts/make-dist.sh
 | `Sources/DecoderKit/LibRawDecoder.swift` | LibRaw C API |
 | `Sources/DecoderKit/RawlerDecoder.swift` + `rawler-ffi/` | Rust の rawler(C ABI 経由、PPG デモザイク固定) |
 | `Sources/DecoderKit/RawLabEngineDecoder.swift` | 独自エンジン。LibRaw はモザイクのデータと黒・白レベル・WB・色行列を読むだけで、黒レベル補正 → WB → デモザイク(Malvar-He-Cutler / バイリニア / 半分サイズはスーパーピクセル)→ 色変換は自前。ベイヤー配列のみ(X-Trans は未対応) |
-| `Sources/DecoderKit/Native/` | RawLab ネイティブ。外部ライブラリに頼らない完全自前のデコーダー。TIFF の IFD・EXIF・ニコンのメーカーノートの解析、NEF の圧縮(非可逆)・ロスレス圧縮の展開、黒・白レベル・WB 係数の取得、色行列(DNG の ColorMatrix 相当をコードに持つ)まで自前で、その先は RawLab エンジンと共通(`BayerMosaic.swift`)。いまはニコン D5 の圧縮 NEF のみ(非対応のファイルは開く前に理由を表示) |
+| `Sources/DecoderKit/Native/` | RawLab ネイティブ。外部ライブラリに頼らない完全自前のデコーダー。TIFF の IFD・EXIF・ニコンのメーカーノートの解析、NEF の圧縮(非可逆)・ロスレス圧縮の展開と非圧縮の読み込み、黒・白レベル・WB 係数の取得、色行列(DNG の ColorMatrix 相当をコードに持つ)まで自前で、その先は RawLab エンジンと共通(`BayerMosaic.swift`)。いまはニコン D5 の NEF のみ(圧縮・ロスレス圧縮・非圧縮)(非対応のファイルは開く前に理由を表示) |
 | `Sources/DecoderKit/ColorAdjust.swift` | 色ごとの調整(8 系統 × 色相・彩度・明度)。OKLCH で計算し、32³ の 3 次元対応表にして 1 回で適用。色の薄い所は守る |
 | `Sources/DecoderKit/HighlightReconstruction.swift` | 白飛びの復元。飽和していない色と、プッシュ・プルで広げた周りの色合いから飽和した色を推定し、白より明るい階調も残す。ハイライト圧縮(`DevelopSettings.highlightRolloff`)と組み合わせて使う |
 | `Sources/DecoderKit/LookMatch.swift` + `LookStore.swift` | 見本の写真への色合わせ(Oklab の明るさの分布 + 明るさの帯ごとの色の変換 → 33³ の対応表)。同じ作者の ZR Grade(red-zr)から移植 |

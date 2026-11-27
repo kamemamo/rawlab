@@ -4,7 +4,8 @@ import Foundation
 /// TIFF の IFD から RAW 本体の場所・サイズ・色配置を、EXIF とメーカーノートから
 /// 黒レベル・撮影時の WB・圧縮の予測値などを取り出し、ロスレス圧縮を展開する。
 ///
-/// 対応: 圧縮(非可逆)とロスレス圧縮の 12 / 14bit の NEF。非圧縮はまだ読まない。
+/// 対応: 圧縮(非可逆)・ロスレス圧縮・非圧縮(1 画素 16bit で並べたもの)の 12 / 14bit の NEF。
+/// 非圧縮で 12bit を詰めて並べた形はまだ読まない。
 struct NikonNEF {
     let make: String
     let model: String
@@ -30,6 +31,8 @@ struct NikonNEF {
     let exif: ExifValues
     /// メーカーノートの中の TIFF のバイト順
     let makerNoteLittleEndian: Bool
+    /// ファイル本体の TIFF のバイト順(非圧縮の画素の並びもこれに従う)
+    let fileLittleEndian: Bool
     /// ファイル全体(メモリにマップしたもの)
     let rawData: Data
 
@@ -145,6 +148,7 @@ struct NikonNEF {
         }
         self.exif = exif
         self.makerNoteLittleEndian = makerNoteLittleEndian
+        self.fileLittleEndian = tiff.littleEndian
         self.rawData = data
         self.nefCompression = nefCompression
         self.linearizationOffset = linearizationOffset
@@ -159,8 +163,13 @@ struct NikonNEF {
     /// 自前で読めない理由(読めるなら nil)
     var unsupportedReason: String? {
         guard make.uppercased().hasPrefix("NIKON") else { return "ニコンの NEF ではありません" }
-        guard compression == 34713 else { return "非圧縮の NEF には未対応(圧縮・ロスレス圧縮のみ)" }
         guard bitsPerSample == 12 || bitsPerSample == 14 else { return "\(bitsPerSample)bit の NEF には未対応" }
+        if compression == 1 {
+            // 非圧縮: 1 画素 16bit で並んでいる形だけ読む(12bit を詰めた形は未対応)
+            guard dataLength >= width * height * 2 else { return "詰めて保存された非圧縮の NEF には未対応" }
+            return nil
+        }
+        guard compression == 34713 else { return "この圧縮方式(\(compression))の NEF には未対応" }
         guard let v = compressionVersion else { return "展開に必要なメーカーノートの値(0x0096)がありません" }
         guard v.0 == 0x46 || (v.0 == 0x44 && v.1 == 0x20) else {
             return String(format: "この版の NEF 圧縮(0x%02X 0x%02X)には未対応", v.0, v.1)
@@ -223,6 +232,7 @@ struct NikonNEF {
     /// 圧縮(非可逆)では、展開した値を変換カーブに通したものが生の値になる。
     func decode() throws -> [UInt16] {
         if let reason = unsupportedReason { throw Failure.notNEF(reason) }
+        if compression == 1 { return try decodeUncompressed() }
         guard let meta = linearizationOffset, let (ver0, ver1) = compressionVersion else {
             throw Failure.notNEF("未対応の NEF です")
         }
@@ -342,6 +352,31 @@ struct NikonNEF {
             }
         }
         if corrupt { throw Failure.corrupt("RAW データが壊れているか、展開の手順が合っていません") }
+        return out
+    }
+
+    // MARK: - 非圧縮
+
+    /// 非圧縮: 1 画素 16bit(ファイルのバイト順)で行ごとに並んでいる。値は下位 bitsPerSample ビット
+    private func decodeUncompressed() throws -> [UInt16] {
+        let w = width, h = height, start = dataOffset
+        let maxValue = UInt16((1 << bitsPerSample) - 1)
+        let little = fileLittleEndian
+        var out = [UInt16](repeating: 0, count: w * h)
+        var corrupt = false
+        rawData.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            out.withUnsafeMutableBufferPointer { dst in
+                var bad = false
+                for i in 0..<(w * h) {
+                    let a = UInt16(raw[start + i * 2]), b = UInt16(raw[start + i * 2 + 1])
+                    let v = little ? a | b << 8 : a << 8 | b
+                    if v > maxValue { bad = true }
+                    dst[i] = min(v, maxValue)
+                }
+                corrupt = bad
+            }
+        }
+        if corrupt { throw Failure.corrupt("非圧縮の RAW データに、ビット数を超える値があります") }
         return out
     }
 }

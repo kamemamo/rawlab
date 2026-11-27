@@ -7,7 +7,7 @@ import ImageIO
 /// 黒・白レベル、WB 係数、色の行列までを Swift で行い、
 /// その先(WB → デモザイク → 色の変換)は RawLab エンジンと同じ処理(BayerMosaic)を通す。
 ///
-/// - 対応: ニコンのロスレス圧縮 NEF のうち、色の値を持っている機種(いまは D5)
+/// - 対応: ニコンの NEF(圧縮・ロスレス圧縮・非圧縮)のうち、色の値を持っている機種(いまは D5)
 /// - 未対応のものは開く前に `unsupportedReason` で理由を返す
 public struct NativeDecoder: RawDecoder {
     public let id = "native"
