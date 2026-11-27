@@ -431,7 +431,7 @@ extension DevelopSettings {
 
 extension DecodeOptions {
     private enum Keys: String, CodingKey {
-        case demosaic, applyAsShotWB, halfSize, noiseReduction, highlight
+        case demosaic, applyAsShotWB, halfSize, noiseReduction, highlight, highlightStrength
     }
 
     /// 後から足した項目は既定値なら書かない(既存バージョンの内容ハッシュを変えない)
@@ -442,6 +442,7 @@ extension DecodeOptions {
         try c.encode(halfSize, forKey: .halfSize)
         try c.encode(noiseReduction, forKey: .noiseReduction)
         if highlight != .clip { try c.encode(highlight, forKey: .highlight) }
+        if highlightStrength != 1 { try c.encode(highlightStrength, forKey: .highlightStrength) }
     }
 
     public init(from decoder: Decoder) throws {
@@ -452,5 +453,6 @@ extension DecodeOptions {
         halfSize = try c.decodeIfPresent(Bool.self, forKey: .halfSize) ?? false
         noiseReduction = try c.decodeIfPresent(Double.self, forKey: .noiseReduction) ?? 0
         highlight = try c.decodeIfPresent(HighlightMode.self, forKey: .highlight) ?? .clip
+        highlightStrength = try c.decodeIfPresent(Double.self, forKey: .highlightStrength) ?? 1
     }
 }

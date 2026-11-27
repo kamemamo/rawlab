@@ -48,15 +48,16 @@ public struct NativeDecoder: RawDecoder {
         if let reason = unsupportedReason(url) { throw DecoderError.failed("\(displayName): \(reason)") }
         let start = Date()
         let source = try Source(url)
-        let image: CIImage
+        let developed: (image: CIImage, saturation: SensorSaturation)
         switch source {
-        case .nef(let nef): image = try Self.mosaic(nef).develop(options)
-        case .orf(let orf): image = try Self.mosaic(orf).develop(options)
-        case .dng(let dng) where dng.isLinearRaw: image = try Self.linear(dng).develop(options)
-        case .dng(let dng): image = try Self.mosaic(dng).develop(options)
+        case .nef(let nef): developed = try Self.mosaic(nef).develop(options)
+        case .orf(let orf): developed = try Self.mosaic(orf).develop(options)
+        case .dng(let dng) where dng.isLinearRaw: developed = try Self.linear(dng).develop(options)
+        case .dng(let dng): developed = try Self.mosaic(dng).develop(options)
         }
-        return DecodedImage(image: image, metadata: Self.metadata(source), decoderID: id,
-                            options: options, decodeTime: Date().timeIntervalSince(start))
+        return DecodedImage(image: developed.image, metadata: Self.metadata(source), decoderID: id,
+                            options: options, decodeTime: Date().timeIntervalSince(start),
+                            sensorSaturation: developed.saturation)
     }
 
     public func metadata(_ url: URL) throws -> RawMetadata {

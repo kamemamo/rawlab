@@ -1,6 +1,7 @@
 import CoreImage
 import DecoderKit
 import Foundation
+import ImageIO
 import LibraryKit
 
 let usage = """
@@ -29,8 +30,10 @@ options:
   --sat <n>             彩度 -1...1
   --nr <n>              デコーダー側ノイズリダクション 0...1
   --demosaic <m>        auto|linear|vng|ppg|ahd|dcb|dht|aahd(LibRaw のみ)
+  --sensor-map          センサーの飽和の地図も PNG で書き出す(RawLab エンジン / RawLab ネイティブ。赤・緑・青 = その色が飽和)
   --half                半分サイズで高速デコード
-  --highlight <m>       白飛び: clip(白にする)| reconstruct(色を補って復元。RawLab エンジン / LibRaw)
+  --highlight <m>       白飛び: clip(白にする)| reconstruct(色を補って復元。RawLab エンジン / RawLab ネイティブ / LibRaw)
+  --highlight-strength <n>  色を補って復元の強さ 0...1(0 = 切り捨てと同じ。既定 1)
   --rolloff <n>         ハイライト圧縮 0...1(1 を超えた明るさを丸めて収める)
   --ev-r/--ev-g/--ev-b <n>  色ごとの露出 (EV)
   --hsl <系統:色相,彩度,明度>  色ごとの調整(何回でも)。例: --hsl blue:0,0.6,-0.4
@@ -47,6 +50,8 @@ struct Options {
     var decode = DecodeOptions()
     var develop = DevelopSettings()
     var crop: Int?
+    /// センサーの飽和の地図も PNG で書き出す
+    var sensorMap = false
 }
 
 func parse(_ args: ArraySlice<String>) throws -> Options {
@@ -80,10 +85,12 @@ func parse(_ args: ArraySlice<String>) throws -> Options {
             guard let m = DemosaicMethod(rawValue: v) else { throw DecoderError.failed("不明なデモザイク: \(v)") }
             o.decode.demosaic = m
         case "--half": o.decode.halfSize = true
+        case "--sensor-map": o.sensorMap = true
         case "--highlight":
             let v = try value(a)
             guard let m = HighlightMode(rawValue: v) else { throw DecoderError.failed("--highlight は clip か reconstruct") }
             o.decode.highlight = m
+        case "--highlight-strength": o.decode.highlightStrength = try number(a)
         case "--rolloff": o.develop.highlightRolloff = try number(a)
         case "--hsl":
             // 系統:色相,彩度,明度  例: blue:0,0.6,-0.4
@@ -156,6 +163,16 @@ func develop(_ o: Options) throws {
         let note = decoded.decoderID == o.decoder ? ""
             : reason.map { "(\(o.decoder) は \($0)のため代替)" } ?? "(\(o.decoder) が失敗したため代替)"
         print("✓ \(dest.path)  [\(decoded.decoderID)\(note)] デコード \(fmt(decoded.decodeTime)) / 書き出し \(fmt(Date().timeIntervalSince(t0)))")
+        if let sat = decoded.sensorSaturation {
+            let p = { (v: Double) in String(format: "%.2f%%", v * 100) }
+            print("  センサーの飽和: R \(p(sat.fraction[0]))  G \(p(sat.fraction[1]))  B \(p(sat.fraction[2]))  どれか \(p(sat.anyFraction))")
+            if o.sensorMap, let cg = DevelopPipeline.context.createCGImage(sat.map, from: sat.map.extent),
+               let png = CGImageDestinationCreateWithURL(
+                   dest.deletingPathExtension().appendingPathExtension("sensor.png") as CFURL, "public.png" as CFString, 1, nil) {
+                CGImageDestinationAddImage(png, cg, nil)
+                CGImageDestinationFinalize(png)
+            }
+        }
     }
 }
 

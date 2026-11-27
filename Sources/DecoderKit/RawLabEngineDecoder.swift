@@ -35,9 +35,10 @@ public struct RawLabEngineDecoder: RawDecoder {
         guard opened == 0 else { throw DecoderError.failed("RawLab エンジン: 開けません") }
         guard libraw_unpack(lr) == 0 else { throw DecoderError.failed("RawLab エンジン: 展開できません") }
 
-        let image = try BayerMosaic(libRaw: lr).develop(options)
-        return DecodedImage(image: image, metadata: (try? metadata(url)) ?? RawMetadata(),
-                            decoderID: id, options: options, decodeTime: Date().timeIntervalSince(start))
+        let developed = try BayerMosaic(libRaw: lr).develop(options)
+        return DecodedImage(image: developed.image, metadata: (try? metadata(url)) ?? RawMetadata(),
+                            decoderID: id, options: options, decodeTime: Date().timeIntervalSince(start),
+                            sensorSaturation: developed.saturation)
     }
 }
 

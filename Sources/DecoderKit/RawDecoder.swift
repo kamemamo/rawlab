@@ -34,6 +34,8 @@ public struct DecodeOptions: Hashable, Sendable, Codable {
     public var noiseReduction: Double = 0
     /// 白飛びの扱い(RawLab エンジン・RawLab ネイティブ・LibRaw で有効)
     public var highlight: HighlightMode = .clip
+    /// 「色を補って復元」の強さ 0...1(0 = 切り捨てと同じ、1 = 復元しきる)。RawLab エンジン・RawLab ネイティブで有効
+    public var highlightStrength: Double = 1
 
     public init(demosaic: DemosaicMethod = .auto, applyAsShotWB: Bool = true,
                 halfSize: Bool = false, noiseReduction: Double = 0) {
@@ -77,6 +79,19 @@ public enum DemosaicMethod: String, CaseIterable, Sendable, Codable {
     }
 }
 
+/// センサーの段階で飽和した(それ以上の明るさを記録できなかった)画素の地図。
+/// 仕上がりの白飛び(画面で 255 になった所)とは別で、露出やハイライトをどう動かしても戻らない範囲がわかる。
+/// RawLab エンジンと RawLab ネイティブだけが出す(生の値を自分で持っているため)
+public struct SensorSaturation: @unchecked Sendable {
+    /// 色ごとに、飽和した所が 1(R・G・B)、どれかが飽和した所は不透明。
+    /// デコード結果の画像と同じ向き・同じ縦横比
+    public let map: CIImage
+    /// 飽和した画素の割合 [R, G, B]
+    public let fraction: [Double]
+    /// 1 色でも飽和した画素の割合
+    public let anyFraction: Double
+}
+
 public struct DecodedImage: @unchecked Sendable {
     /// Core Image の作業空間(リニア)上の画像
     public let image: CIImage
@@ -85,6 +100,8 @@ public struct DecodedImage: @unchecked Sendable {
     public let options: DecodeOptions
     /// デコードにかかった時間(秒)
     public let decodeTime: TimeInterval
+    /// センサーの飽和の地図(RawLab エンジン・RawLab ネイティブのみ)
+    public var sensorSaturation: SensorSaturation? = nil
 }
 
 public struct RawMetadata: Sendable, Codable {

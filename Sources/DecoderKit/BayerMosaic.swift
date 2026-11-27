@@ -24,11 +24,16 @@ struct BayerMosaic {
     let matrix: [Float]
     let orientation: CGImagePropertyOrientation?
 
-    /// リニア・デモザイク済み・WB 適用済みのリニア sRGB の画像にする
-    func develop(_ options: DecodeOptions) -> CIImage {
-        let reconstruct = options.highlight == .reconstruct
+    /// リニア・デモザイク済み・WB 適用済みのリニア sRGB の画像と、センサーの飽和の地図にする
+    func develop(_ options: DecodeOptions) -> (image: CIImage, saturation: SensorSaturation) {
+        // 強さ 0 は切り捨てと同じ処理にする(途中の頭打ちの位置が違うと、縁の補間がわずかに変わるため)
+        let reconstruct = options.highlight == .reconstruct && options.highlightStrength > 0
         let wb = whiteBalance(asShot: options.applyAsShotWB)
-        let plane = normalizedPlane(wb: wb, clipAfterWB: !reconstruct)
+        // 白レベルより手前で飽和している機種では、その値を 1 にそろえる
+        // (そろえないと、飽和した緑が 1 に届かず、白飛びがマゼンタになる)
+        let levels = saturationLevels()
+        let scale = 1 / max(levels.min() ?? 1, 0.5)
+        let plane = normalizedPlane(wb: wb, clipAfterWB: !reconstruct, scale: scale)
         // 補間で飽和の値を超えないよう、色ごとに上限をかける(復元するときの飽和の値は wb[c])。
         // 強い境目の近くで Malvar-He-Cutler が行き過ぎた値を出しても、色の付いた斑点にならない
         let upper: [Float] = reconstruct ? wb : [1, 1, 1]
@@ -42,7 +47,7 @@ struct BayerMosaic {
             rgb = Demosaic.malvar(plane, width, height, pattern, upper: upper)
         }
         if reconstruct {
-            HighlightReconstruction.reconstruct(&rgb, w, h, clip: wb)
+            HighlightReconstruction.reconstruct(&rgb, w, h, clip: wb, strength: Float(options.highlightStrength))
         }
         convertToSRGB(&rgb)
 
@@ -51,7 +56,57 @@ struct BayerMosaic {
                             size: CGSize(width: w, height: h), format: .RGBAf,
                             colorSpace: CGColorSpace(name: CGColorSpace.linearSRGB))
         if let o = orientation { image = image.oriented(o) }
-        return image
+        let saturation = saturationMap(levels: levels, outputSize: CGSize(width: w, height: h))
+        return (image, saturation)
+    }
+
+    /// 0〜1 に正規化した値(黒を引き、白で割る)
+    @inline(__always)
+    private func normalized(_ value: UInt16, x: Int, y: Int) -> Float {
+        let pos = (y & 1) * 2 + (x & 1)
+        var black = blackForPosition[pos]
+        if blackPattern.rows > 0 {
+            black += blackPattern.values[(y % blackPattern.rows) * blackPattern.cols + x % blackPattern.cols]
+        }
+        return (Float(value) - black) / max(white - black, 1)
+    }
+
+    /// 色ごとのセンサーの飽和の値(白レベル = 1)
+    func saturationLevels() -> [Float] {
+        let w = width, pat = pattern
+        return raw.withUnsafeBufferPointer { src in
+            SensorSaturationDetect.levels(rows: height) { y, body in
+                for x in 0..<w {
+                    body(pat[(y & 1) * 2 + (x & 1)], normalized(src[y * w + x], x: x, y: y))
+                }
+            }
+        }
+    }
+
+    /// 2×2 のブロックごとに、どの色が飽和したかの地図
+    private func saturationMap(levels: [Float], outputSize: CGSize) -> SensorSaturation {
+        let bw = width / 2, bh = height / 2, w = width, pat = pattern
+        let limits = levels.map { $0 * SensorSaturationDetect.threshold }
+        var bits = [UInt8](repeating: 0, count: bw * bh)
+        raw.withUnsafeBufferPointer { src in
+            bits.withUnsafeMutableBufferPointer { out in
+                DispatchQueue.concurrentPerform(iterations: bh) { by in
+                    for bx in 0..<bw {
+                        var b: UInt8 = 0
+                        for dy in 0..<2 {
+                            for dx in 0..<2 {
+                                let x = bx * 2 + dx, y = by * 2 + dy
+                                let c = pat[dy * 2 + dx]
+                                if normalized(src[y * w + x], x: x, y: y) >= limits[c] { b |= 1 << c }
+                            }
+                        }
+                        out[by * bw + bx] = b
+                    }
+                }
+            }
+        }
+        return SensorSaturationDetect.makeSaturation(bits: bits, width: bw, height: bh,
+                                                     outputSize: outputSize, orientation: orientation)
     }
 
     func whiteBalance(asShot: Bool) -> [Float] { asShot ? asShotMul : daylightMul }
@@ -59,7 +114,7 @@ struct BayerMosaic {
     /// 黒レベルを引き、白レベルで 0〜1 にし、ホワイトバランスをかけた 1 枚の面。
     /// clipAfterWB なら WB 後に 1 で頭打ち(白飛びは白)、そうでなければ WB 前に 1 で頭打ち
     /// (色ごとの飽和の値が wb[c] になり、白飛びの復元で使える)
-    func normalizedPlane(wb: [Float], clipAfterWB: Bool) -> [Float] {
+    func normalizedPlane(wb: [Float], clipAfterWB: Bool, scale: Float = 1) -> [Float] {
         var out = [Float](repeating: 0, count: width * height)
         let pat = pattern, blackPos = blackForPosition, bp = blackPattern, white = white, w = width
         raw.withUnsafeBufferPointer { src in
@@ -69,7 +124,7 @@ struct BayerMosaic {
                         let pos = (y & 1) * 2 + (x & 1)
                         var black = blackPos[pos]
                         if bp.rows > 0 { black += bp.values[(y % bp.rows) * bp.cols + x % bp.cols] }
-                        let v = (Float(src[y * w + x]) - black) / max(white - black, 1)
+                        let v = (Float(src[y * w + x]) - black) / max(white - black, 1) * scale
                         dst[y * w + x] = clipAfterWB
                             ? min(max(v * wb[pat[pos]], 0), 1)
                             : min(max(v, 0), 1) * wb[pat[pos]]

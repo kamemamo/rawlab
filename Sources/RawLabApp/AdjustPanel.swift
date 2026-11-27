@@ -583,6 +583,13 @@ struct PreviewArea: View {
                             Image(decorative: overlay, scale: 1).resizable().scaledToFit().allowsHitTesting(false)
                         }
                     }
+                    .overlay {
+                        // センサーの飽和(デコード結果から作るので、補正を変えても変わらない)
+                        if model.showSensorSaturation, model.compareMode != .before, let s = model.sensorSaturation {
+                            Image(decorative: s.image, scale: 1).resizable().interpolation(.none).scaledToFit()
+                                .opacity(0.85).allowsHitTesting(false)
+                        }
+                    }
                     .overlay { if model.compareMode == .split { splitOverlay } }
                     .overlay(alignment: .topLeading) {
                         if model.compareMode == .before { badge("補正前").padding(8) }

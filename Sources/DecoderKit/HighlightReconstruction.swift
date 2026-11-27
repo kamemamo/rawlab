@@ -25,6 +25,27 @@ enum HighlightReconstruction {
     static let maxChromaDeviation: Float = 0.25
     static let sampleMinRatio: Float = 0.30
 
+    /// strength(0〜1)で、切り捨て(各色 1 で頭打ち)の結果と復元した結果を混ぜる
+    static func reconstruct(_ rgba: inout [Float], _ w: Int, _ h: Int, clip: [Float], strength: Float) {
+        let s = min(max(strength, 0), 1)
+        guard s < 1 else {
+            reconstruct(&rgba, w, h, clip: clip)
+            return
+        }
+        let original = rgba
+        if s > 0 { reconstruct(&rgba, w, h, clip: clip) }
+        original.withUnsafeBufferPointer { o in
+            rgba.withUnsafeMutableBufferPointer { p in
+                DispatchQueue.concurrentPerform(iterations: h) { y in
+                    for i in (y * w * 4)..<((y + 1) * w * 4) where i & 3 != 3 {
+                        let clipped = min(o[i], 1)
+                        p[i] = clipped + s * (p[i] - clipped)
+                    }
+                }
+            }
+        }
+    }
+
     static func reconstruct(_ rgba: inout [Float], _ w: Int, _ h: Int, clip: [Float]) {
         let bw = (w + block - 1) / block, bh = (h + block - 1) / block
         let c0 = clip[0], c1 = clip[1], c2 = clip[2]

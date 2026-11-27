@@ -79,7 +79,39 @@ struct InspectorView: View {
             }
             .help("色を補って復元: 飽和していない色と周りの色合いから飽和した色を推定し、白より明るい階調も残す。下の「ハイライト圧縮」と組み合わせると、露出を下げずに雲などの階調が見える(RawLab エンジン・RawLab ネイティブ・LibRaw)")
             .disabled(!["rawlab", "native", "libraw"].contains(model.decoderID))
+            if model.decodeOptions.highlight == .reconstruct, ["rawlab", "native"].contains(model.decoderID) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text("復元の強さ")
+                        Spacer()
+                        Text("\(Int((model.decodeOptions.highlightStrength * 100).rounded()))%").monospacedDigit()
+                    }
+                    Slider(value: $model.decodeOptions.highlightStrength, in: 0...1, step: 0.05)
+                        .controlSize(.small)
+                }
+                .help("0% = 切り捨てと同じ、100% = 推定した色と明るさをそのまま使う。下の「センサーの飽和」で、補っている範囲を確かめられる")
+            }
+            sensorSaturationRow
         }
+    }
+
+    /// センサーの飽和: 大画面に色で重ねるスイッチと、飽和した画素の割合
+    private var sensorSaturationRow: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Toggle("センサーの飽和を表示", isOn: $model.showSensorSaturation)
+                .disabled(model.sensorSaturation == nil)
+            if let s = model.sensorSaturation {
+                let p = { (v: Double) in v == 0 ? "0" : v < 0.001 ? "<0.1%" : String(format: "%.1f%%", v * 100) }
+                Text("R \(p(s.fraction[0]))  G \(p(s.fraction[1]))  B \(p(s.fraction[2]))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("RawLab エンジン・RawLab ネイティブで表示できます")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .help("センサーがそれ以上の明るさを記録できなかった所を、飽和した色で重ねる(赤・緑・青、2 色なら黄・シアン・マゼンタ、3 色とも飽和なら白)。1 色だけの所は「色を補って復元」で戻せる。白い所は元の色がわからない")
     }
 
     @ViewBuilder

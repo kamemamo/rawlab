@@ -39,6 +39,16 @@ private struct DecodedBase: @unchecked Sendable {
     let image: CIImage
     let small: CIImage
     let time: TimeInterval
+    /// センサーの飽和の地図(RawLab エンジン・RawLab ネイティブのみ)
+    var saturation: SensorSaturationOverlay? = nil
+}
+
+/// 大画面に重ねるセンサーの飽和の地図と、飽和した画素の割合
+struct SensorSaturationOverlay: @unchecked Sendable {
+    let image: CGImage
+    /// [R, G, B]
+    let fraction: [Double]
+    let anyFraction: Double
 }
 
 private struct ImageBox: @unchecked Sendable {
@@ -172,6 +182,10 @@ final class AppModel {
         didSet { if oldValue != showClipping { rerender() } }
     }
     var clippingOverlay: CGImage?
+    /// センサーの段階で飽和した所を色で重ねる(R・G・B = その色が飽和、白 = 3 色とも)
+    var showSensorSaturation = false
+    /// いま大画面に出しているデコード結果の、センサーの飽和(出せないデコーダーなら nil)
+    var sensorSaturation: SensorSaturationOverlay?
     /// 大画面で見る色(RGB / R / G / B)
     var channelView = ChannelView.rgb {
         didSet {
@@ -733,14 +747,19 @@ final class AppModel {
         guard let big = DevelopPipeline.materialize(decoded.image, maxPixel: 2400),
               let small = DevelopPipeline.materialize(big, maxPixel: 400)
         else { throw DecoderError.failed("プレビュー作成に失敗") }
+        let saturation = decoded.sensorSaturation.flatMap { s -> SensorSaturationOverlay? in
+            guard let cg = DevelopPipeline.context.createCGImage(s.map, from: s.map.extent) else { return nil }
+            return SensorSaturationOverlay(image: cg, fraction: s.fraction, anyFraction: s.anyFraction)
+        }
         return DecodedBase(decoderID: decoded.decoderID, image: big, small: small,
-                           time: Date().timeIntervalSince(start))
+                           time: Date().timeIntervalSince(start), saturation: saturation)
     }
 
     /// 大画面を描き直す。確定済みのビットマップに当てるので速い
     func rerender() {
         renderTask?.cancel()
         guard let b = hoverDecoderID.flatMap({ decoderBases[$0] }) ?? base else { return }
+        sensorSaturation = b.saturation
         let box = ImageBox(image: b.image)
         let settings = hoverSettings ?? self.settings
         let clipping = showClipping
