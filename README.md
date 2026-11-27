@@ -87,3 +87,8 @@ VERSION=0.1.0 ./scripts/make-dist.sh
 | `Sources/RawLabApp` | SwiftUI アプリ |
 
 デコーダーを足すときは `RawDecoder` を実装して `DecoderRegistry.all` に追加する。
+
+## ライセンス
+
+RawLab のコードは [MIT ライセンス](LICENSE)です。
+同梱・リンクしているライブラリ(LibRaw・rawler は LGPL-2.1 など)のライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照。

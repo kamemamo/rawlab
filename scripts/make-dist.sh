@@ -62,6 +62,7 @@ fi
 # --- 3. ライセンス表記 ---
 LIC=$APP/Contents/Resources/Licenses
 mkdir -p "$LIC"
+cp LICENSE "$LIC/RawLab-LICENSE.txt"
 cp THIRD_PARTY_NOTICES.md "$LIC/"
 cp /opt/homebrew/opt/libraw/COPYRIGHT "$LIC/LibRaw-COPYRIGHT.txt"
 cp /opt/homebrew/opt/libraw/LICENSE.LGPL "$LIC/LibRaw-LICENSE.LGPL.txt"

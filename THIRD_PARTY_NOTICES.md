@@ -18,7 +18,8 @@ This software is based in part on the work of the Independent JPEG Group.
 ### LGPL について
 
 LibRaw と rawler は LGPL-2.1 です。RawLab のソースコード(rawler と組み合わせて
-作り直すために必要なもの一式)は、ご希望があれば提供します。同梱の LibRaw は
+作り直すために必要なもの一式)は https://github.com/kamemamo/rawlab で公開しています
+(RawLab 自体のコードは MIT ライセンス)。同梱の LibRaw は
 `Contents/Frameworks/libraw_r.25.dylib` を差し替えて使うこともできます。
 
 ## rawler が使っている Rust の部品
