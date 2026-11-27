@@ -16,3 +16,8 @@ RawLab — RAW 現像アプリ(macOS)
 ・RAW ファイルは移動・変更しません(読むだけです)。
 ・現像の設定は ピクチャ › RawLab Library に保存されます。
 ・写真をインターネットに送ることはありません。
+
+■ ソースコードとライセンス
+・RawLab のソースコードは https://github.com/kamemamo/rawlab で公開しています(MIT ライセンス)。
+・使っているライブラリ(LibRaw・rawler は LGPL-2.1 など)のライセンスは、
+  RawLab.app を右クリック ›「パッケージの内容を表示」› Contents › Resources › Licenses にあります。
