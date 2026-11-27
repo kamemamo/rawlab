@@ -1,8 +1,15 @@
 # RawLab
 
+日本語 | [English](README.en.md)
+
 自分用の RAW 現像アプリ(macOS)。デコーダーを切り替えて比較できる。
 
-## 必要なもの
+## ダウンロード
+
+公証済みのアプリは [Releases](https://github.com/kamemamo/rawlab/releases) にある(`RawLab-<版>.zip`)。展開して `RawLab.app` を「アプリケーション」へドラッグする。
+Apple シリコンの Mac、macOS 27 以降。
+
+## 必要なもの(ソースから作る場合)
 - Xcode / Swift 6
 - `brew install libraw`
 - Rust(rawler 用)。初回は `cd rawler-ffi && cargo build --release`
@@ -68,6 +75,7 @@ VERSION=0.1.0 ./scripts/make-dist.sh
 - ライセンス表記を `Contents/Resources/Licenses/` に入れる(一覧は `./scripts/make-notices.sh` で作り直す)
 - Hardened Runtime で署名 → 公証 → staple → 説明書(`docs/はじめにお読みください.txt`)と一緒に zip
 - 動作条件: Apple シリコン、macOS 27 以降(Homebrew の LibRaw に合わせているため)
+- マニュアルの図と PDF はリポジトリに入れていない。`docs/manual/manual.html` から PDF を作れるのは、手元に `docs/manual/img/` がある場合だけ
 
 ## 構成
 | 場所 | 役割 |
@@ -79,6 +87,7 @@ VERSION=0.1.0 ./scripts/make-dist.sh
 | `Sources/DecoderKit/RawLabEngineDecoder.swift` | 独自エンジン。LibRaw はモザイクのデータと黒・白レベル・WB・色行列を読むだけで、黒レベル補正 → WB → デモザイク(Malvar-He-Cutler / バイリニア / 半分サイズはスーパーピクセル)→ 色変換は自前。ベイヤー配列のみ(X-Trans は未対応) |
 | `Sources/DecoderKit/ColorAdjust.swift` | 色ごとの調整(8 系統 × 色相・彩度・明度)。OKLCH で計算し、32³ の 3 次元対応表にして 1 回で適用。色の薄い所は守る |
 | `Sources/DecoderKit/HighlightReconstruction.swift` | 白飛びの復元。飽和していない色と、プッシュ・プルで広げた周りの色合いから飽和した色を推定し、白より明るい階調も残す。ハイライト圧縮(`DevelopSettings.highlightRolloff`)と組み合わせて使う |
+| `Sources/DecoderKit/LookMatch.swift` + `LookStore.swift` | 見本の写真への色合わせ(Oklab の明るさの分布 + 明るさの帯ごとの色の変換 → 33³ の対応表)。同じ作者の ZR Grade(red-zr)から移植 |
 | `Sources/DecoderKit/DecoderRegistry.swift` | デコーダー一覧とフォールバック |
 | `Sources/DecoderKit/DevelopPipeline.swift` | 共通の現像処理・書き出し・サムネイル |
 | `Sources/DecoderKit/Sidecar.swift` | 旧方式のサイドカー(取り込み専用) |
