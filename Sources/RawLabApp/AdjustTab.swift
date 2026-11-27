@@ -110,6 +110,30 @@ struct AdjustParam: @unchecked Sendable {
         return (0..<count).map { round(start + Double($0) * fineStep) }
     }
 
+    /// パネルを小さくしたときは段階を増やす(density 倍に細かく)。範囲は粗い段階と同じ
+    func coarseValues(density d: Int) -> [Double] {
+        let base = coarseValues
+        guard d > 1, let first = base.first, let last = base.last else { return base }
+        let n = (count - 1) * d + 1
+        return dedupe((0..<n).map { round(first + (last - first) * Double($0) / Double(n - 1)) })
+    }
+
+    /// 細かい段階はこれ以上刻めないので、数を増やして左右に広げる
+    func fineValues(around value: Double, density d: Int) -> [Double] {
+        guard d > 1 else { return fineValues(around: value) }
+        let n = (count - 1) * d + 1
+        let half = Double(n / 2) * fineStep
+        let lo = max(value - half, range.lowerBound)
+        let start = min(lo, max(range.upperBound - 2 * half, range.lowerBound))
+        return dedupe((0..<n).map { clamp(start + Double($0) * fineStep) })
+    }
+
+    private func dedupe(_ vs: [Double]) -> [Double] {
+        var out: [Double] = []
+        for v in vs where out.last.map({ abs($0 - v) > fineStep / 2 }) ?? true { out.append(v) }
+        return out
+    }
+
     func clamp(_ v: Double) -> Double { round(min(max(v, range.lowerBound), range.upperBound)) }
 
     /// 浮動小数の誤差を細かい刻みに合わせて丸める

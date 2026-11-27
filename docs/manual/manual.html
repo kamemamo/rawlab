@@ -23,6 +23,7 @@
   table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; font-size: 9pt; }
   th, td { border-bottom: 1px solid #e5e5ea; padding: 1.6mm 2mm; text-align: left; vertical-align: top; }
   th { background: #f5f5f7; font-weight: 600; }
+  .compact th, .compact td { padding: 1.1mm 2mm; }
   ol, ul { margin: 0 0 3mm; padding-left: 6mm; }
   li { margin-bottom: 1mm; }
   .note { background: #f5f5f7; border-radius: 6px; padding: 3mm 4mm; margin: 3mm 0; font-size: 9pt; }
@@ -174,11 +175,12 @@
     <li><b>クリックすると細かい段階に</b> — 選んだ値を真ん中にして、細かい刻み(露出なら 0.1 EV)に並べ直します。さらにクリックすると、そこが新しい真ん中になります。</li>
     <li><b>微調整</b> — 下の <b>−</b> / <b>＋</b>、またはキーボードの <kbd>←</kbd> <kbd>→</kbd> で 1 刻みずつ動かせます。</li>
     <li><b>やり直す</b> — 「粗く選び直す」で粗い段階に戻ります。「0 に戻す」でその項目だけ元に戻ります。</li>
+    <li><b>マウスを乗せて確認</b> — 乗せている間は大きな画面がその値になるので、サムネイルが小さくても違いを確かめられます。</li>
+    <li><b>大きさを変える</b> — パネル上端の横棒を上下にドラッグ。小さくすると段階が増えて全体を見渡せます(ダブルクリックで元の大きさ)。</li>
   </ol>
-  <div class="tip"><b>マウスを乗せて確認</b> — サムネイルにマウスを乗せている間は、大きな画面がその値になります。サムネイルが小さくても、大画面で違いを確かめられます。</div>
 
   <h2>タブの一覧</h2>
-  <table>
+  <table class="compact">
     <tr><th style="width:24%">タブ</th><th>内容</th></tr>
     <tr><td>露出</td><td>全体の明るさ</td></tr>
     <tr><td>ホワイトバランス</td><td>色温度(横)× 色かぶり(縦)のマス目。スポイトつき(5 章)</td></tr>

@@ -812,6 +812,16 @@ final class AppModel {
     }
 
     /// 下のパネルのサムネイルを作り直す
+    /// 段階の細かさ。調整パネルを小さくしたときに増やす(1 = 標準の数、2 = 約 2 倍、3 = 約 3 倍)
+    var stepDensity = 1 {
+        didSet { if stepDensity != oldValue { refreshVariations() } }
+    }
+
+    /// 今のタブで使う細かさ。等倍切り出し(ノイズ低減・シャープ)は重いので増やさない
+    var effectiveStepDensity: Int {
+        selectedTab.param?.usesCrop == true ? 1 : stepDensity
+    }
+
     func refreshVariations() {
         guard !loadingVersion, base != nil else { return }
         if selectedTab == .decoder {
@@ -851,7 +861,8 @@ final class AppModel {
         variationTask?.cancel()
         let settings = self.settings
         let current = settings[keyPath: p.keyPath]
-        let values = fineTabs.contains(selectedTab) ? p.fineValues(around: current) : p.coarseValues
+        let d = effectiveStepDensity
+        let values = fineTabs.contains(selectedTab) ? p.fineValues(around: current, density: d) : p.coarseValues(density: d)
         let box = ImageBox(image: source)
         variationTask = Task {
             try? await Task.sleep(for: .milliseconds(20))
@@ -875,6 +886,7 @@ final class AppModel {
         variationTask?.cancel()
         let settings = self.settings
         let fine = fineTabs.contains(selectedTab)
+        let d = effectiveStepDensity
         let box = ImageBox(image: source)
         variationTask = Task {
             try? await Task.sleep(for: .milliseconds(20))
@@ -882,7 +894,7 @@ final class AppModel {
             let rows = await Task.detached(priority: .userInitiated) { () -> [[Variation]] in
                 ps.enumerated().map { row, p in
                     let current = settings[keyPath: p.keyPath]
-                    let values = fine ? p.fineValues(around: current) : p.coarseValues
+                    let values = fine ? p.fineValues(around: current, density: d) : p.coarseValues(density: d)
                     return values.enumerated().compactMap { i, v in
                         var s = settings
                         s[keyPath: p.keyPath] = v
@@ -904,7 +916,7 @@ final class AppModel {
         let cx = settings[keyPath: g.x.keyPath]
         let cy = settings[keyPath: g.y.keyPath]
         let fine = fineTabs.contains(selectedTab)
-        let xs = fine ? g.x.fineValues(around: cx) : g.x.coarseValues
+        let xs = fine ? g.x.fineValues(around: cx, density: effectiveStepDensity) : g.x.coarseValues(density: effectiveStepDensity)
         let ys = Array((fine ? g.y.fineValues(around: cy) : g.y.coarseValues).reversed())
         let box = ImageBox(image: source)
         variationTask = Task {

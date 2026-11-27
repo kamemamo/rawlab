@@ -7,12 +7,17 @@ struct AdjustPanel: View {
     @Bindable var model: AppModel
     @FocusState private var focused: Bool
     @State private var lookDropTargeted = false
+    /// 段階サムネイルの段の高さの倍率(上の縁をドラッグで変える。ダブルクリックで元に戻す)
+    @AppStorage("adjustPanelScale") private var panelScale = 1.0
+    @State private var dragStartScale: Double?
+    private static let scaleRange = 0.5...3.0
 
     private let panelBackground = Color(white: 0.17)
     private let accent = Color(red: 0.31, green: 0.63, blue: 1.0)
 
     var body: some View {
         VStack(spacing: 0) {
+            resizeHandle
             tabBar
             Group {
                 if model.selectedTab == .decoder {
@@ -35,9 +40,7 @@ struct AdjustPanel: View {
                     variationStrip
                 }
             }
-            .frame(height: model.selectedTab == .hsl ? 236
-                   : model.selectedTab.grid != nil || model.rowParams != nil ? 200
-                   : model.selectedTab.isToneEditor ? 250 : 132)
+            .frame(height: stripHeight)
             .padding(.horizontal, 10)
             .padding(.top, 8)
             controls
@@ -45,6 +48,10 @@ struct AdjustPanel: View {
         .background(panelBackground)
         .foregroundStyle(.white)
         .sheet(isPresented: $model.isLookPasteSheetShown) { LookPasteSheet(model: model) }
+        .onChange(of: panelScale, initial: true) { _, scale in
+            // 小さくするほど段階を増やし、全体を俯瞰できるようにする
+            model.stepDensity = scale < 0.6 ? 3 : scale < 0.8 ? 2 : 1
+        }
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
@@ -65,6 +72,54 @@ struct AdjustPanel: View {
             model.nudgeVertical(-1)
             return .handled
         }
+    }
+
+    // MARK: 大きさ
+
+    /// 項目ごとの標準の高さ。トーンのグラフは大きさを変えない
+    private var baseHeight: Double {
+        model.selectedTab == .hsl ? 236
+            : model.selectedTab.grid != nil || model.rowParams != nil ? 200
+            : model.selectedTab.isToneEditor ? 250 : 132
+    }
+
+    private var stripHeight: Double {
+        model.selectedTab.isToneEditor ? baseHeight : min(baseHeight * panelScale, 620)
+    }
+
+    /// パネルの上の縁。上へドラッグでサムネイルが大きく、下へで小さく(そのぶん大画面が広がる)
+    private var resizeHandle: some View {
+        ZStack {
+            Color.white.opacity(0.001)
+            Capsule()
+                .fill(Color.white.opacity(dragStartScale != nil ? 0.6 : 0.25))
+                .frame(width: 36, height: 4)
+        }
+        .frame(height: 10)
+        .contentShape(Rectangle())
+        .onHover { inside in
+            if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { v in
+                    let start = dragStartScale ?? panelScale
+                    if dragStartScale == nil { dragStartScale = start }
+                    let height = baseHeight * start - v.translation.height
+                    panelScale = min(max(height / baseHeight, Self.scaleRange.lowerBound), Self.scaleRange.upperBound)
+                }
+                .onEnded { _ in dragStartScale = nil }
+        )
+        .onTapGesture(count: 2) { panelScale = 1 }
+        .help("ドラッグでサムネイルの大きさを変えます(ダブルクリックで元の大きさ)")
+    }
+
+    /// 段階を増やしたときは隙間をなくす
+    private var itemPadding: CGFloat { model.effectiveStepDensity > 1 ? 0.5 : 2 }
+
+    /// 段階を増やしたときは数字が重なるので、もとの段階の位置と今の値だけに数字を出す
+    private func showsLabel(_ index: Int, current: Bool) -> Bool {
+        current || index % model.effectiveStepDensity == 0
     }
 
     // MARK: タブ
@@ -131,11 +186,14 @@ struct AdjustPanel: View {
                             RoundedRectangle(cornerRadius: 3)
                                 .stroke(v.isCurrent ? accent : .clear, lineWidth: 2)
                         }
-                    Text(v.label)
+                    Text(showsLabel(v.id, current: v.isCurrent) ? v.label : " ")
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(v.isCurrent ? accent : .white.opacity(0.7))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .frame(maxWidth: cropPoints == nil ? 0 : nil)
                 }
-                .padding(2)  // 見た目の隙間は内側に取り、マウスが外れる場所を作らない
+                .padding(itemPadding)  // 見た目の隙間は内側に取り、マウスが外れる場所を作らない
                 .contentShape(Rectangle())
                 .onTapGesture {
                     model.pick(v.value)
@@ -267,11 +325,14 @@ struct AdjustPanel: View {
                                     RoundedRectangle(cornerRadius: 3)
                                         .stroke(v.isCurrent ? accent : .clear, lineWidth: 2)
                                 }
-                            Text(v.label)
+                            Text(showsLabel(v.id % 100, current: v.isCurrent) ? v.label : " ")
                                 .font(.system(size: 9).monospacedDigit())
                                 .foregroundStyle(v.isCurrent ? accent : .white.opacity(0.6))
+                                .lineLimit(1)
+                                .fixedSize()
+                                .frame(maxWidth: 0)
                         }
-                        .padding(2)
+                        .padding(itemPadding)
                         .contentShape(Rectangle())
                         .onTapGesture {
                             model.pickChannel(row, v.value)
@@ -294,8 +355,10 @@ struct AdjustPanel: View {
         return VStack(spacing: 0) {
             HStack(spacing: 0) {
                 Text("色かぶり").font(.caption2).foregroundStyle(.white.opacity(0.5)).frame(width: 44)
-                ForEach(Array(cols.enumerated()), id: \.offset) { _, x in
-                    Text(g.x.label(x))
+                ForEach(Array(cols.enumerated()), id: \.offset) { i, x in
+                    Text(showsLabel(i, current: false) ? g.x.label(x) : " ")
+                        .lineLimit(1)
+                        .fixedSize()
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.white.opacity(0.7))
                         .frame(maxWidth: .infinity)
@@ -316,7 +379,7 @@ struct AdjustPanel: View {
                                 RoundedRectangle(cornerRadius: 3)
                                     .stroke(v.isCurrent ? accent : .clear, lineWidth: 2)
                             }
-                            .padding(2)
+                            .padding(itemPadding)
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 model.pickGrid(x: v.x, y: v.y)
