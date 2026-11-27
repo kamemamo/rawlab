@@ -48,7 +48,7 @@ public enum ColorRange: Int, CaseIterable, Codable, Hashable, Sendable, Identifi
 
 /// 1 系統分の調整
 public struct HSLValue: Codable, Hashable, Sendable {
-    /// 色相(度、±30)
+    /// 色相(度、±60)
     public var hue: Double = 0
     /// 彩度(-1 で無彩色、+1 で 2 倍)
     public var saturation: Double = 0

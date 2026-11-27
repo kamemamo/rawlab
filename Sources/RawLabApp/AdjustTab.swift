@@ -46,7 +46,7 @@ enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
 
     /// 色ごとの調整: 選んだ系統の 色相・彩度・明度 の 3 段
     static func hslParams(_ r: ColorRange) -> [AdjustParam] {
-        [AdjustParam(\DevelopSettings.colorAdjustments[r].hue, -30...30, coarse: 6, fine: 1, format: "%+.0f°"),
+        [AdjustParam(\DevelopSettings.colorAdjustments[r].hue, -60...60, coarse: 12, fine: 1, format: "%+.0f°"),
          AdjustParam(\DevelopSettings.colorAdjustments[r].saturation, -1...1, coarse: 0.2, fine: 0.05, format: "%+.2f"),
          AdjustParam(\DevelopSettings.colorAdjustments[r].luminance, -1...1, coarse: 0.2, fine: 0.05, format: "%+.2f")]
     }
