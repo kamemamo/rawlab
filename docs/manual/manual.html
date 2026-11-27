@@ -4,7 +4,12 @@
 <meta charset="utf-8">
 <title>RawLab マニュアル</title>
 <style>
-  @page { size: A4; margin: 16mm 15mm 18mm 15mm; }
+  @page {
+    size: A4; margin: 16mm 15mm 18mm 15mm;
+    /* 各ページの下に版とページ番号 */
+    @bottom-left { content: "RawLab {{VERSION}} マニュアル"; font-family: "Hiragino Sans", sans-serif; font-size: 7.5pt; color: #86868b; }
+    @bottom-right { content: counter(page) " / " counter(pages); font-family: "Hiragino Sans", sans-serif; font-size: 7.5pt; color: #86868b; }
+  }
   @page :first { margin: 0; }
   * { box-sizing: border-box; }
   body {
