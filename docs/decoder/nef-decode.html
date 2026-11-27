@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NEF 展開のしくみ</title>
+<title>NEF・DNG 展開のしくみ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Zen+Kaku+Gothic+New:wght@500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
@@ -160,8 +160,8 @@ footer { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--lin
 
 <header class="top">
   <div class="eyebrow">RawLab ネイティブ デコーダー · 技術資料</div>
-  <h1>NEF 展開のしくみ</h1>
-  <p class="lead">ニコンの RAW ファイル(NEF)を、外部ライブラリを使わずにリニアな RGB 画像にするまでの手順と、ファイルの中の構造をまとめた資料です。数値はすべてサンプル <code>samples/D5_sample.NEF</code>(Nikon D5、圧縮 14bit。<a href="https://raw.pixls.us/data/Nikon/D5/">raw.pixls.us</a> の LV5_4402.NEF と同じファイルで、リポジトリには入れていない)から実際に読んだものです。</p>
+  <h1>NEF・DNG 展開のしくみ</h1>
+  <p class="lead">ニコンの RAW ファイル(NEF)と DNG を、外部ライブラリを使わずにリニアな RGB 画像にするまでの手順と、ファイルの中の構造をまとめた資料です。1〜8 章は NEF、9 章は DNG で違うところです。NEF の章の数値はすべてサンプル <code>samples/D5_sample.NEF</code>(Nikon D5、圧縮 14bit。<a href="https://raw.pixls.us/data/Nikon/D5/">raw.pixls.us</a> の LV5_4402.NEF と同じファイルで、リポジトリには入れていない)から実際に読んだものです。</p>
   <div class="meta-row">
     <span>ブランチ <b>native-decoder</b></span>
     <span>コード <b>Sources/DecoderKit/Native/</b></span>
@@ -179,8 +179,9 @@ footer { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--lin
     <li><a href="#levels"><span class="no">6</span>黒・白レベルと WB</a></li>
     <li><a href="#color"><span class="no">7</span>色行列</a></li>
     <li><a href="#demosaic"><span class="no">8</span>デモザイクから画像へ</a></li>
-    <li><a href="#verify"><span class="no">9</span>検証の結果</a></li>
-    <li><a href="#files"><span class="no">10</span>コードの対応と制限</a></li>
+    <li><a href="#dng"><span class="no">9</span>DNG の読み方</a></li>
+    <li><a href="#verify"><span class="no">10</span>検証の結果</a></li>
+    <li><a href="#files"><span class="no">11</span>コードの対応と制限</a></li>
   </ol>
 </nav>
 
@@ -521,9 +522,53 @@ footer { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--lin
 </section>
 
 <!-- 9 -->
+<section id="dng">
+  <h2><span class="no">9</span>DNG の読み方</h2>
+  <p>DNG も TIFF を土台にした形式ですが、RAW に要る値がすべて公開のタグで決まっています。黒・白レベル、撮影時の WB、色の行列がファイルの中にあるので、NEF のように機種ごとの表を持つ必要がありません。手順は NEF と同じで、「本体の IFD を探す → 展開する → 使う範囲を切り出す → 黒・白・WB・色」です。</p>
+
+  <h3>使うタグ</h3>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>タグ</th><th>名前</th><th>場所</th><th>使い道</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">50706</td><td>DNGVersion</td><td>IFD0</td><td>DNG かどうかの目印</td></tr>
+        <tr><td class="mono">254 / 262</td><td>NewSubfileType / Photometric</td><td>本体</td><td>0 かつ 32803(CFA)の IFD が RAW 本体。34892(LinearRaw)はデモザイク済み</td></tr>
+        <tr><td class="mono">259</td><td>Compression</td><td>本体</td><td>1 = 非圧縮、7 = ロスレス JPEG、52546 = JPEG XL</td></tr>
+        <tr><td class="mono">273 / 279 / 278</td><td>Strip…</td><td>本体</td><td>ストリップ(横長の帯)の位置・長さ・行数</td></tr>
+        <tr><td class="mono">322〜325</td><td>Tile…</td><td>本体</td><td>タイル(四角い塊)の幅・高さ・位置・長さ</td></tr>
+        <tr><td class="mono">33422 / 50710</td><td>CFAPattern / CFAPlaneColor</td><td>本体</td><td>2×2 の色配置(ActiveArea の左上が基準)</td></tr>
+        <tr><td class="mono">50829</td><td>ActiveArea</td><td>本体</td><td>使う範囲(上・左・下・右)。外側は遮光された画素</td></tr>
+        <tr><td class="mono">50713 / 50714</td><td>BlackLevelRepeatDim / BlackLevel</td><td>本体</td><td>黒レベルの繰り返しの大きさと値</td></tr>
+        <tr><td class="mono">50717</td><td>WhiteLevel</td><td>本体</td><td>白レベル</td></tr>
+        <tr><td class="mono">50712</td><td>LinearizationTable</td><td>本体</td><td>展開した値を直す表(あれば通す)</td></tr>
+        <tr><td class="mono">50728</td><td>AsShotNeutral</td><td>IFD0</td><td>撮影時の白。逆数が WB の倍率</td></tr>
+        <tr><td class="mono">50721 / 50722</td><td>ColorMatrix1 / 2</td><td>IFD0</td><td>XYZ → カメラ。光源は 50778 / 50779 で示される</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>ロスレス JPEG の展開</h3>
+  <p>DNG の RAW 本体でいちばん多いのが、JPEG 規格の中のロスレス方式(SOF3)です。しくみは NEF の展開とよく似ていて、近くのサンプルから予測した値との差がハフマン符号で並んでいます。違いは次の点です。</p>
+  <ul class="plain">
+    <li><b>ハフマン表はファイルの中にある:</b> DHT マーカーから読む(NEF は決まった 6 種類)</li>
+    <li><b>予測のしかたを選べる:</b> SOS の値(1〜7)で、左・上・左上やその組み合わせから選ぶ。1 行目は左だけ、各行の先頭は上だけを使う</li>
+    <li><b>成分が交互に並ぶ:</b> 2 成分なら R G R G … のように 1 画素に 2 サンプル。並んだ順にタイルの幅で折り返して置く</li>
+    <li><b>FF のあとの 00 は捨てる:</b> データの中の FF はマーカーと区別するため FF 00 と書かれている。リスタートマーカー(FF D0〜D7)があれば予測をやり直す</li>
+    <li><b>差のビット数が 16 のとき:</b> 続くビットは読まず、差を −32768 とする</li>
+  </ul>
+
+  <h3>非圧縮</h3>
+  <p>8bit と 16bit はそのまま並びます(16bit はファイルのバイト順)。10〜14bit は、上位ビットから詰めて並び、各行はバイトの境目から始まります。THETA Z1 の DNG は 12bit で、2 画素が 3 バイトに入っています。</p>
+
+  <h3>色と WB</h3>
+  <div class="formula">WB の倍率[c] = AsShotNeutral[緑] ÷ AsShotNeutral[c]<br>色の行列: 光源が D65(番号 21)の ColorMatrix を、7 章と同じ手順で カメラ → sRGB にする</div>
+  <p class="note">DNG の仕様では、撮影時の光源に合わせて 2 つの行列を混ぜ合わせることになっています。いまは NEF と同じく D65 の行列だけを使います(LibRaw と同じ扱い)。CameraCalibration と AnalogBalance も使っていません。</p>
+</section>
+
+<!-- 10 -->
 <section id="verify">
-  <h2><span class="no">9</span>検証の結果</h2>
-  <p>展開した生の値は、同じファイルを LibRaw 0.22.3 で展開した値と、全画素をバイト単位で比べました。最後まで現像した結果は、同じ値を LibRaw から読む RawLab エンジンの結果と比べています。</p>
+  <h2><span class="no">10</span>検証の結果</h2>
+  <p>展開した生の値は、同じファイルを LibRaw 0.22.3 で展開した値と、使わない縁も含めた全画素をバイト単位で比べました。最後まで現像した結果は、同じ値を LibRaw から読む RawLab エンジンの結果と比べています。</p>
   <div class="tbl">
     <table>
       <thead><tr><th>ファイル</th><th>形式</th><th>生の値(LibRaw と)</th><th>現像結果(RawLab エンジンと)</th><th>展開</th></tr></thead>
@@ -532,6 +577,10 @@ footer { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--lin
         <tr><td>raw.pixls.us の D5</td><td>D5・非圧縮 14bit</td><td><span class="pill">ビット単位で一致</span></td><td class="mono">8bit で最大差 1</td><td class="num">0.03 秒</td></tr>
         <tr><td>raw.pixls.us の D500</td><td>D500・ロスレス 14bit</td><td><span class="pill">ビット単位で一致</span></td><td class="mono">8bit で最大差 1 ※</td><td class="num">0.12 秒</td></tr>
         <tr><td>raw.pixls.us の D500</td><td>D500・ロスレス 12bit</td><td><span class="pill">ビット単位で一致</span></td><td class="mono">8bit で最大差 1 ※</td><td class="num">0.10 秒</td></tr>
+        <tr><td>raw.pixls.us の Ricoh GR III</td><td>DNG・ロスレス JPEG 14bit</td><td><span class="pill">ビット単位で一致</span></td><td class="mono">8bit で最大差 1</td><td class="num">0.31 秒</td></tr>
+        <tr><td>raw.pixls.us の Pentax K-3 Mark III</td><td>DNG・ロスレス JPEG 14bit</td><td><span class="pill">ビット単位で一致</span></td><td class="mono">8bit で最大差 1</td><td class="num">0.31 秒</td></tr>
+        <tr><td>raw.pixls.us の Leica M10</td><td>DNG・ロスレス JPEG 16bit</td><td><span class="pill">ビット単位で一致</span></td><td class="mono">8bit で最大差 1</td><td class="num">0.30 秒</td></tr>
+        <tr><td>Ricoh THETA Z1(手元)</td><td>DNG・非圧縮 12bit(詰めた形)</td><td><span class="pill">ビット単位で一致</span></td><td class="mono">8bit で最大差 1</td><td class="num">0.06 秒</td></tr>
       </tbody>
     </table>
   </div>
@@ -539,17 +588,19 @@ footer { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--lin
   <p>LibRaw の現像結果とは、明るさの平均の差が 1/255 未満、画素ごとの平均の差が 3/255 です。差の多くはデモザイクの方式の違いによるものです。最大差 1 は、色行列の計算の精度(LibRaw は単精度、自前は倍精度)の違いによるものと考えられます。</p>
 </section>
 
-<!-- 10 -->
+<!-- 11 -->
 <section id="files">
-  <h2><span class="no">10</span>コードの対応と制限</h2>
+  <h2><span class="no">11</span>コードの対応と制限</h2>
   <div class="tbl">
     <table>
       <thead><tr><th>ファイル</th><th>役割</th></tr></thead>
       <tbody>
         <tr><td class="mono">Native/TIFFReader.swift</td><td>TIFF ヘッダー・IFD・値の型の読み出し。メーカーノートの内側の TIFF も同じ型で読む</td></tr>
         <tr><td class="mono">Native/NikonNEF.swift</td><td>RAW 本体の IFD・EXIF・メーカーノートの解析、3 形式の展開、非対応の理由</td></tr>
+        <tr><td class="mono">Native/DNGFile.swift</td><td>DNG のタグの解析、ストリップ・タイル、非圧縮の読み込み、LinearizationTable、非対応の理由</td></tr>
+        <tr><td class="mono">Native/LosslessJPEG.swift</td><td>ロスレス JPEG(SOF3)の展開</td></tr>
         <tr><td class="mono">Native/CameraColor.swift</td><td>機種ごとの ColorMatrix2 と、カメラ → sRGB の行列・昼光 WB の計算</td></tr>
-        <tr><td class="mono">Native/NativeDecoder.swift</td><td><code>RawDecoder</code> の実装、非対応の判定(ファイルごとに覚えておく)、メタデータ</td></tr>
+        <tr><td class="mono">Native/NativeDecoder.swift</td><td><code>RawDecoder</code> の実装、拡張子で NEF と DNG を振り分け、非対応の判定(ファイルごとに覚えておく)、メタデータ</td></tr>
         <tr><td class="mono">BayerMosaic.swift</td><td>黒レベル → WB → デモザイク → 色変換 → 向き(RawLab エンジンと共通)</td></tr>
       </tbody>
     </table>
@@ -557,16 +608,15 @@ footer { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--lin
 
   <h3>開く前に「非対応」と表示するもの</h3>
   <ul class="plain">
-    <li>拡張子が NEF / NRW でないファイル</li>
-    <li>色行列を持っていない機種(いまは D5 だけ持っている)</li>
-    <li>12bit を詰めた非圧縮、古い版の圧縮、12・14bit 以外</li>
-    <li>メーカーノートに黒レベル・撮影時の WB・展開データがないもの</li>
+    <li>拡張子が NEF / NRW / DNG でないファイル</li>
+    <li>NEF: 色行列を持っていない機種(いまは D5 だけ持っている)、12bit を詰めた非圧縮、古い版の圧縮、メーカーノートに黒レベル・撮影時の WB・展開データがないもの</li>
+    <li>DNG: JPEG XL・非可逆 JPEG・Deflate の圧縮、デモザイク済み(LinearRaw)、2×2 以外の配列、浮動小数、行・列ごとの黒レベル(BlackLevelDeltaH/V)、色の行列がないもの</li>
   </ul>
   <p class="note">判定は TIFF とメーカーノートの解析だけで済み、画素の展開はしません。アプリでは、非対応のデコーダーは開く前にその理由を表示します。</p>
 </section>
 
 <footer>
-  参考にした手順: dcraw / LibRaw の <span class="mono">nikon_load_raw</span>(展開)、<span class="mono">cam_xyz_coeff</span>(色行列)、TIFF 6.0 と ExifTool のニコンのタグの説明。コードは参考にした手順を見ながら Swift で書き直したもので、外部ライブラリは使っていない。
+  参考にした手順: dcraw / LibRaw の <span class="mono">nikon_load_raw</span>・<span class="mono">ljpeg_row</span>(展開)、DNG 仕様 1.4、ITU-T T.81(ロスレス JPEG)、<span class="mono">cam_xyz_coeff</span>(色行列)、TIFF 6.0 と ExifTool のニコンのタグの説明。コードは参考にした手順を見ながら Swift で書き直したもので、外部ライブラリは使っていない。
 </footer>
 
 </div>

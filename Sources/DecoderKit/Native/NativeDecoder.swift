@@ -3,11 +3,12 @@ import Foundation
 import ImageIO
 
 /// 外部ライブラリに頼らない、完全に自前のデコーダー。
-/// ファイルの解析(TIFF の IFD・EXIF・ニコンのメーカーノート)、ロスレス圧縮の展開、
+/// ファイルの解析(TIFF の IFD・EXIF・ニコンのメーカーノート・DNG のタグ)、圧縮の展開、
 /// 黒・白レベル、WB 係数、色の行列までを Swift で行い、
 /// その先(WB → デモザイク → 色の変換)は RawLab エンジンと同じ処理(BayerMosaic)を通す。
 ///
 /// - 対応: ニコンの NEF(圧縮・ロスレス圧縮・非圧縮)のうち、色の値を持っている機種(いまは D5)
+/// - 対応: ベイヤー配列の DNG(非圧縮・ロスレス JPEG 圧縮)。色の値はファイルの中にあるので機種を問わない
 /// - 未対応のものは開く前に `unsupportedReason` で理由を返す
 public struct NativeDecoder: RawDecoder {
     public let id = "native"
@@ -15,9 +16,26 @@ public struct NativeDecoder: RawDecoder {
 
     public init() {}
 
+    /// 読んだファイル(形式ごと)
+    private enum Source {
+        case nef(NikonNEF)
+        case dng(DNGFile)
+
+        init(_ url: URL) throws {
+            let data = try Data(contentsOf: url, options: .alwaysMapped)
+            switch url.pathExtension.lowercased() {
+            case "dng": self = .dng(try DNGFile(data: data))
+            case "nef", "nrw": self = .nef(try NikonNEF(data: data))
+            default: throw DecoderError.failed("RawLab ネイティブ: \(NativeDecoder.formatsReason)")
+            }
+        }
+    }
+
+    private static let formatsReason = "ニコンの NEF と DNG のみ対応"
+
     public func unsupportedReason(_ url: URL) -> String? {
-        guard ["nef", "nrw"].contains(url.pathExtension.lowercased()) else {
-            return "ニコンの NEF のみ対応"
+        guard ["nef", "nrw", "dng"].contains(url.pathExtension.lowercased()) else {
+            return Self.formatsReason
         }
         return Self.check(url)
     }
@@ -25,17 +43,19 @@ public struct NativeDecoder: RawDecoder {
     public func decode(_ url: URL, options: DecodeOptions) throws -> DecodedImage {
         if let reason = unsupportedReason(url) { throw DecoderError.failed("\(displayName): \(reason)") }
         let start = Date()
-        let data = try Data(contentsOf: url, options: .alwaysMapped)
-        let nef = try NikonNEF(data: data)
-        let mosaic = try Self.mosaic(nef, data: data)
+        let source = try Source(url)
+        let mosaic: BayerMosaic
+        switch source {
+        case .nef(let nef): mosaic = try Self.mosaic(nef)
+        case .dng(let dng): mosaic = try Self.mosaic(dng)
+        }
         let image = mosaic.develop(options)
-        return DecodedImage(image: image, metadata: Self.metadata(nef), decoderID: id,
+        return DecodedImage(image: image, metadata: Self.metadata(source), decoderID: id,
                             options: options, decodeTime: Date().timeIntervalSince(start))
     }
 
     public func metadata(_ url: URL) throws -> RawMetadata {
-        let data = try Data(contentsOf: url, options: .alwaysMapped)
-        return Self.metadata(try NikonNEF(data: data))
+        Self.metadata(try Source(url))
     }
 
     // MARK: - 対応しているかの判定(ファイルごとに覚えておく)
@@ -52,10 +72,12 @@ public struct NativeDecoder: RawDecoder {
         lock.unlock()
         let reason: String?
         do {
-            let data = try Data(contentsOf: url, options: .alwaysMapped)
-            reason = unsupportedReason(try NikonNEF(data: data))
+            switch try Source(url) {
+            case .nef(let nef): reason = unsupportedReason(nef)
+            case .dng(let dng): reason = dng.unsupportedReason
+            }
         } catch {
-            reason = "NEF として読めません(\(error.localizedDescription))"
+            reason = "読めません(\(error.localizedDescription))"
         }
         lock.lock()
         cache[url] = reason
@@ -74,11 +96,15 @@ public struct NativeDecoder: RawDecoder {
         return nil
     }
 
+    private static func orientation(_ tiffValue: Int) -> CGImagePropertyOrientation? {
+        CGImagePropertyOrientation(rawValue: UInt32(tiffValue)).flatMap { $0 == .up ? nil : $0 }
+    }
+
     // MARK: - NEF → モザイク
 
-    private static func mosaic(_ nef: NikonNEF, data: Data) throws -> BayerMosaic {
+    private static func mosaic(_ nef: NikonNEF) throws -> BayerMosaic {
         guard let camXYZ = CameraColor.matrices[nef.model.uppercased()],
-              let color = CameraColor.conversion(cameraFromXYZ: camXYZ),
+              let color = CameraColor.conversion(cameraFromXYZ: camXYZ.map { $0 / 10000 }),
               let blackLevel = nef.blackLevel, let rb = nef.asShotRB
         else { throw DecoderError.failed("RawLab ネイティブ: \(unsupportedReason(nef) ?? "未対応")") }
 
@@ -109,7 +135,44 @@ public struct NativeDecoder: RawDecoder {
             asShotMul: [Float(rb.r), 1, Float(rb.b)],
             daylightMul: color.daylight,
             matrix: color.matrix,
-            orientation: CGImagePropertyOrientation(rawValue: UInt32(nef.orientation)).flatMap { $0 == .up ? nil : $0 })
+            orientation: orientation(nef.orientation))
+    }
+
+    // MARK: - DNG → モザイク
+
+    private static func mosaic(_ dng: DNGFile) throws -> BayerMosaic {
+        guard dng.unsupportedReason == nil, let cfa = dng.cfa, let camXYZ = dng.colorMatrix,
+              let color = CameraColor.conversion(cameraFromXYZ: camXYZ)
+        else { throw DecoderError.failed("RawLab ネイティブ: \(dng.unsupportedReason ?? "色の行列を計算できません")") }
+
+        let full = try dng.decode()
+        // 使う範囲(ActiveArea)だけを取り出す。CFA と黒レベルの模様はこの左上が基準
+        let a = dng.activeArea
+        let w = a.right - a.left, h = a.bottom - a.top
+        var raw = [UInt16](repeating: 0, count: w * h)
+        full.withUnsafeBufferPointer { src in
+            raw.withUnsafeMutableBufferPointer { dst in
+                for y in 0..<h {
+                    dst.baseAddress!.advanced(by: y * w)
+                        .update(from: src.baseAddress!.advanced(by: (y + a.top) * dng.rawWidth + a.left), count: w)
+                }
+            }
+        }
+
+        // 撮影時の WB: AsShotNeutral(カメラの RGB での白)の逆数を、緑 = 1 にそろえる
+        let asShot = dng.asShotNeutral.map { n in n.map { Float(n[1] / $0) } } ?? color.daylight
+
+        return BayerMosaic(
+            width: w, height: h,
+            pattern: cfa,
+            raw: raw,
+            blackForPosition: [0, 0, 0, 0],
+            blackPattern: (dng.black.rows, dng.black.cols, dng.black.values.map(Float.init)),
+            white: Float(dng.whiteLevel),
+            asShotMul: asShot,
+            daylightMul: color.daylight,
+            matrix: color.matrix,
+            orientation: orientation(dng.orientation))
     }
 
     // MARK: - メタデータ
@@ -119,11 +182,25 @@ public struct NativeDecoder: RawDecoder {
         model.uppercased().hasPrefix("NIKON ") ? String(model.dropFirst(6)) : model
     }
 
-    private static func metadata(_ nef: NikonNEF) -> RawMetadata {
+    private static func metadata(_ source: Source) -> RawMetadata {
         var meta = RawMetadata()
-        meta.make = nef.make.uppercased().hasPrefix("NIKON") ? "Nikon" : nef.make
-        meta.model = cleanModel(nef.model)
-        let e = nef.exif
+        let e: RawExif
+        let size: (w: Int, h: Int)
+        let orientation: Int
+        switch source {
+        case .nef(let nef):
+            meta.make = nef.make.uppercased().hasPrefix("NIKON") ? "Nikon" : nef.make
+            meta.model = cleanModel(nef.model)
+            e = nef.exif
+            size = (nef.width, nef.height)
+            orientation = nef.orientation
+        case .dng(let dng):
+            meta.make = dng.make
+            meta.model = dng.model
+            e = dng.exif
+            size = (dng.activeArea.right - dng.activeArea.left, dng.activeArea.bottom - dng.activeArea.top)
+            orientation = dng.orientation
+        }
         meta.iso = e.iso
         meta.shutter = e.exposureTime
         meta.aperture = e.fNumber
@@ -144,9 +221,9 @@ public struct NativeDecoder: RawDecoder {
             let aperture = l[2] == l[3] ? "f/\(n(l[2]))" : "f/\(n(l[2]))-\(n(l[3]))"
             meta.lens = "\(focal) \(aperture)"
         }
-        let rotated = [5, 6, 7, 8].contains(nef.orientation)
-        meta.width = rotated ? nef.height : nef.width
-        meta.height = rotated ? nef.width : nef.height
+        let rotated = [5, 6, 7, 8].contains(orientation)
+        meta.width = rotated ? size.h : size.w
+        meta.height = rotated ? size.w : size.h
         meta.pictureControl = e.pictureControl
         meta.activeDLighting = e.activeDLighting.map(adlName)
         return meta

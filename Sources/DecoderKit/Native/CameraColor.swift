@@ -21,7 +21,7 @@ enum CameraColor {
         0.019334, 0.119193, 0.950227,
     ]
 
-    /// XYZ → カメラの行列から、
+    /// XYZ → カメラの行列(× 10000 していない実数)から、
     /// - ホワイトバランス後のカメラの RGB → リニア sRGB の行列(3×3、行ごと)
     /// - 昼光(D65)の WB 係数(緑 = 1)
     /// を求める(dcraw の cam_xyz_coeff と同じ考え方)。
@@ -30,8 +30,7 @@ enum CameraColor {
     /// そろえる前の行の合計の逆数が、昼光でカメラの RGB を白にそろえる WB 係数になる。
     static func conversion(cameraFromXYZ m: [Double]) -> (matrix: [Float], daylight: [Float])? {
         guard m.count == 9 else { return nil }
-        let camXYZ = m.map { $0 / 10000 }
-        var camRGB = multiply(camXYZ, xyzFromSRGB)
+        var camRGB = multiply(m, xyzFromSRGB)
         var daylight = [Double](repeating: 1, count: 3)
         for i in 0..<3 {
             let sum = camRGB[i * 3] + camRGB[i * 3 + 1] + camRGB[i * 3 + 2]

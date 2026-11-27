@@ -28,26 +28,13 @@ struct NikonNEF {
     let blackLevel: [Int]?
     /// メーカーノート 0x000C の撮影時 WB(R と B の倍率、緑 = 1)
     let asShotRB: (r: Double, b: Double)?
-    let exif: ExifValues
+    let exif: RawExif
     /// メーカーノートの中の TIFF のバイト順
     let makerNoteLittleEndian: Bool
     /// ファイル本体の TIFF のバイト順(非圧縮の画素の並びもこれに従う)
     let fileLittleEndian: Bool
     /// ファイル全体(メモリにマップしたもの)
     let rawData: Data
-
-    struct ExifValues {
-        var exposureTime: Double = 0
-        var fNumber: Double = 0
-        var iso: Double = 0
-        var focalLength: Double = 0
-        var dateTimeOriginal: String?
-        var lensModel: String?
-        /// メーカーノート 0x0084(最短・最長焦点距離、開放 F 値の最小・最大)
-        var nikonLens: [Double]?
-        var pictureControl: String?
-        var activeDLighting: Int?
-    }
 
     enum Failure: LocalizedError {
         case notNEF(String)
@@ -105,19 +92,14 @@ struct NikonNEF {
         cfa = pattern
 
         // EXIF とメーカーノート
-        var exif = ExifValues()
+        var exif = RawExif()
         var nefCompression: Int?
         var linearizationOffset: Int?
         var blackLevel: [Int]?
         var asShotRB: (Double, Double)?
         var makerNoteLittleEndian = tiff.littleEndian
         if let exifPointer = ifd0[34665], let exifIFD = try? tiff.ifd(at: tiff.int(exifPointer)) {
-            exif.exposureTime = exifIFD[33434].flatMap { try? tiff.real($0) } ?? 0
-            exif.fNumber = exifIFD[33437].flatMap { try? tiff.real($0) } ?? 0
-            exif.iso = exifIFD[34855].flatMap { try? tiff.real($0) } ?? 0
-            exif.focalLength = exifIFD[37386].flatMap { try? tiff.real($0) } ?? 0
-            exif.dateTimeOriginal = exifIFD[36867].map(tiff.string)
-            exif.lensModel = exifIFD[42036].map(tiff.string)
+            exif.readBasics(tiff, exifIFD)
 
             // ニコンのメーカーノート(タイプ 3): "Nikon\0" + 版 4 バイト のあとに TIFF ヘッダーが続き、
             // 中のオフセットはその TIFF ヘッダーの先頭から数える

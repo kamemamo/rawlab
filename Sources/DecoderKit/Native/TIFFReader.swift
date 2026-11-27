@@ -167,3 +167,27 @@ struct TIFFReader {
         return data.subdata(in: s..<s + n)
     }
 }
+
+/// EXIF の撮影情報と、メーカーノートから読んだ表示用の値
+struct RawExif {
+    var exposureTime: Double = 0
+    var fNumber: Double = 0
+    var iso: Double = 0
+    var focalLength: Double = 0
+    var dateTimeOriginal: String?
+    var lensModel: String?
+    /// ニコンのメーカーノート 0x0084(最短・最長焦点距離、開放 F 値の最小・最大)
+    var nikonLens: [Double]?
+    var pictureControl: String?
+    var activeDLighting: Int?
+
+    /// EXIF IFD の基本の値(露出・F 値・ISO・焦点距離・撮影日時・レンズ名)を読む
+    mutating func readBasics(_ tiff: TIFFReader, _ ifd: TIFFReader.IFD) {
+        exposureTime = ifd[33434].flatMap { try? tiff.real($0) } ?? 0
+        fNumber = ifd[33437].flatMap { try? tiff.real($0) } ?? 0
+        iso = ifd[34855].flatMap { try? tiff.real($0) } ?? 0
+        focalLength = ifd[37386].flatMap { try? tiff.real($0) } ?? 0
+        dateTimeOriginal = ifd[36867].map(tiff.string)
+        lensModel = ifd[42036].map(tiff.string)
+    }
+}
