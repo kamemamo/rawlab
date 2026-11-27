@@ -79,12 +79,15 @@ public struct NativeDecoder: RawDecoder {
     private static func mosaic(_ nef: NikonNEF, data: Data) throws -> BayerMosaic {
         guard let camXYZ = CameraColor.matrices[nef.model.uppercased()],
               let color = CameraColor.conversion(cameraFromXYZ: camXYZ),
-              let black = nef.blackLevel, let rb = nef.asShotRB
+              let blackLevel = nef.blackLevel, let rb = nef.asShotRB
         else { throw DecoderError.failed("RawLab ネイティブ: \(unsupportedReason(nef) ?? "未対応")") }
 
         let raw = try nef.decode()
 
-        // 黒レベルは R, G(R の行), G(B の行), B の順。2×2 の位置ごとに割り当てる
+        // 黒レベルは R, G(R の行), G(B の行), B の順。2×2 の位置ごとに割り当てる。
+        // メーカーノートの値は 14bit の目盛りなので、12bit のファイルでは 1/4 にする
+        // (D500 の 12bit ロスレスで 400 → 100。LibRaw も同じ)
+        let black = blackLevel.map { $0 >> max(0, 14 - nef.bitsPerSample) }
         let pattern = nef.cfa.map { $0 == 3 ? 1 : $0 }
         let blackForPosition: [Float] = (0..<4).map { pos in
             switch pattern[pos] {
