@@ -48,16 +48,16 @@ public struct NativeDecoder: RawDecoder {
         if let reason = unsupportedReason(url) { throw DecoderError.failed("\(displayName): \(reason)") }
         let start = Date()
         let source = try Source(url)
-        let developed: (image: CIImage, saturation: SensorSaturation)
+        let developed: (image: CIImage, saturation: SensorSaturation, dark: DarkInfo)
         switch source {
         case .nef(let nef): developed = try Self.mosaic(nef).develop(options)
         case .orf(let orf): developed = try Self.mosaic(orf).develop(options)
         case .dng(let dng) where dng.isLinearRaw: developed = try Self.linear(dng).develop(options)
-        case .dng(let dng): developed = try Self.mosaic(dng).develop(options)
+        case .dng(let dng): developed = try Self.mosaic(dng, options: options).develop(options)
         }
         return DecodedImage(image: developed.image, metadata: Self.metadata(source), decoderID: id,
                             options: options, decodeTime: Date().timeIntervalSince(start),
-                            sensorSaturation: developed.saturation)
+                            sensorSaturation: developed.saturation, darkInfo: developed.dark)
     }
 
     public func metadata(_ url: URL) throws -> RawMetadata {
@@ -191,7 +191,7 @@ public struct NativeDecoder: RawDecoder {
 
     // MARK: - DNG → モザイク
 
-    private static func mosaic(_ dng: DNGFile) throws -> BayerMosaic {
+    private static func mosaic(_ dng: DNGFile, options: DecodeOptions) throws -> BayerMosaic {
         guard dng.unsupportedReason == nil, let cfa = dng.cfa, let camXYZ = dng.colorMatrix,
               let color = CameraColor.conversion(cameraFromXYZ: camXYZ)
         else { throw DecoderError.failed("RawLab ネイティブ: \(dng.unsupportedReason ?? "色の行列を計算できません")") }
@@ -213,7 +213,7 @@ public struct NativeDecoder: RawDecoder {
         // 撮影時の WB: AsShotNeutral(カメラの RGB での白)の逆数を、緑 = 1 にそろえる
         let asShot = dng.asShotNeutral.map { n in n.map { Float(n[1] / $0) } } ?? color.daylight
 
-        return BayerMosaic(
+        var mosaic = BayerMosaic(
             width: w, height: h,
             pattern: cfa,
             raw: raw,
@@ -224,6 +224,56 @@ public struct NativeDecoder: RawDecoder {
             daylightMul: color.daylight,
             matrix: color.matrix,
             orientation: orientation(dng.orientation))
+        let declared = dng.black.values.reduce(0, +) / Double(max(dng.black.values.count, 1))
+        mosaic.darkInfo = DarkInfo(declaredBlack: declared)
+        if let ob = opticalBlack(full, dng, declared: Float(declared)) {
+            mosaic.darkInfo.measuredBlack = Double(ob.mean)
+            mosaic.darkInfo.rowBanding = Double(ob.banding)
+            if options.measuredBlack { mosaic.rowBlack = ob.rows }
+        }
+        return mosaic
+    }
+
+    /// 遮光画素(ActiveArea の左か右の外にある、光の当たらない画素)から、行ごとの黒を測る。
+    /// 戻り値の rows は ActiveArea の各行の「ファイルの黒レベルからのずれ」。
+    /// 1 行の平均にはその行のノイズも混ざるので、行ごとの揺れのうちノイズで説明できない分だけを残す
+    /// (ノイズしかなければ、全体のずれだけを引く)
+    private static func opticalBlack(_ full: [UInt16], _ dng: DNGFile, declared: Float)
+        -> (rows: [Float], mean: Float, banding: Float)? {
+        let a = dng.activeArea, rw = dng.rawWidth
+        let columns: Range<Int>
+        if a.left >= 12 {
+            columns = 2..<(a.left - 2)
+        } else if rw - a.right >= 12 {
+            columns = (a.right + 2)..<(rw - 2)
+        } else {
+            return nil
+        }
+        let count = Float(columns.count)
+        var rowMeans = [Float](), sum: Float = 0, sumSq: Float = 0
+        rowMeans.reserveCapacity(a.bottom - a.top)
+        for y in a.top..<a.bottom {
+            var s: Float = 0
+            for x in columns {
+                let v = Float(full[y * rw + x])
+                s += v
+                sumSq += v * v
+            }
+            sum += s
+            rowMeans.append(s / count)
+        }
+        let n = count * Float(rowMeans.count)
+        let mean = sum / n
+        let pixelVar = max(sumSq / n - mean * mean, 0)
+        // 遮光画素らしくなければ使わない(黒から大きく離れている・ばらつきが大きすぎる)
+        let range = Float(dng.whiteLevel) - declared
+        guard abs(mean - declared) < range * 0.02, pixelVar.squareRoot() < range * 0.01 else { return nil }
+        let rowVar = rowMeans.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Float(rowMeans.count)
+        let noiseVar = pixelVar / count
+        let banding = max(rowVar - noiseVar, 0)
+        let keep = rowVar > 0 ? banding / rowVar : 0  // ノイズで説明できない割合(ウィーナーの考え方)
+        let rows = rowMeans.map { (mean - declared) + keep * ($0 - mean) }
+        return (rows, mean, banding.squareRoot())
     }
 
     // MARK: - デモザイク済みの DNG → リニア RGB

@@ -34,6 +34,9 @@ options:
   --half                半分サイズで高速デコード
   --highlight <m>       白飛び: clip(白にする)| reconstruct(色を補って復元。RawLab エンジン / RawLab ネイティブ / LibRaw)
   --highlight-strength <n>  色を補って復元の強さ 0...1(0 = 切り捨てと同じ。既定 1)
+  --keep-below-black    黒より暗い値(暗部のノイズの下半分)を切らずに残す(RawLab エンジン / RawLab ネイティブ)
+  --measured-black      遮光画素で黒と行ごとの縞を測って引く(RawLab ネイティブ・遮光画素のある DNG)
+  --shadow-nr <n>       測ったノイズに合わせた暗部のノイズ低減 0...1(RawLab エンジン / RawLab ネイティブ)
   --rolloff <n>         ハイライト圧縮 0...1(1 を超えた明るさを丸めて収める)
   --ev-r/--ev-g/--ev-b <n>  色ごとの露出 (EV)
   --hsl <系統:色相,彩度,明度>  色ごとの調整(何回でも)。例: --hsl blue:0,0.6,-0.4
@@ -91,6 +94,9 @@ func parse(_ args: ArraySlice<String>) throws -> Options {
             guard let m = HighlightMode(rawValue: v) else { throw DecoderError.failed("--highlight は clip か reconstruct") }
             o.decode.highlight = m
         case "--highlight-strength": o.decode.highlightStrength = try number(a)
+        case "--keep-below-black": o.decode.keepBelowBlack = true
+        case "--measured-black": o.decode.measuredBlack = true
+        case "--shadow-nr": o.decode.shadowNoiseReduction = try number(a)
         case "--rolloff": o.develop.highlightRolloff = try number(a)
         case "--hsl":
             // 系統:色相,彩度,明度  例: blue:0,0.6,-0.4
@@ -165,6 +171,12 @@ func develop(_ o: Options) throws {
         print("✓ \(dest.path)  [\(decoded.decoderID)\(note)] デコード \(fmt(decoded.decodeTime)) / 書き出し \(fmt(Date().timeIntervalSince(t0)))")
         if let sat = decoded.sensorSaturation {
             let p = { (v: Double) in String(format: "%.2f%%", v * 100) }
+            if let d = decoded.darkInfo {
+                var line = String(format: "  黒: ファイル %.1f", d.declaredBlack)
+                if let m = d.measuredBlack { line += String(format: " / 遮光画素 %.1f(行ごとの縞 %.2f)", m, d.rowBanding ?? 0) }
+                if let s = d.noiseAtBlack { line += String(format: "  黒のあたりのノイズ %.3f%%", s * 100) }
+                print(line)
+            }
             print("  センサーの飽和: R \(p(sat.fraction[0]))  G \(p(sat.fraction[1]))  B \(p(sat.fraction[2]))  どれか \(p(sat.anyFraction))")
             if o.sensorMap, let cg = DevelopPipeline.context.createCGImage(sat.map, from: sat.map.extent),
                let png = CGImageDestinationCreateWithURL(

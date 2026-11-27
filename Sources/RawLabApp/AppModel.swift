@@ -41,6 +41,8 @@ private struct DecodedBase: @unchecked Sendable {
     let time: TimeInterval
     /// センサーの飽和の地図(RawLab エンジン・RawLab ネイティブのみ)
     var saturation: SensorSaturationOverlay? = nil
+    /// 暗部について測った値(RawLab エンジン・RawLab ネイティブのみ)
+    var darkInfo: DarkInfo? = nil
 }
 
 /// 大画面に重ねるセンサーの飽和の地図と、飽和した画素の割合
@@ -186,6 +188,8 @@ final class AppModel {
     var showSensorSaturation = false
     /// いま大画面に出しているデコード結果の、センサーの飽和(出せないデコーダーなら nil)
     var sensorSaturation: SensorSaturationOverlay?
+    /// いま大画面に出しているデコード結果の、暗部について測った値
+    var darkInfo: DarkInfo?
     /// 大画面で見る色(RGB / R / G / B)
     var channelView = ChannelView.rgb {
         didSet {
@@ -752,7 +756,7 @@ final class AppModel {
             return SensorSaturationOverlay(image: cg, fraction: s.fraction, anyFraction: s.anyFraction)
         }
         return DecodedBase(decoderID: decoded.decoderID, image: big, small: small,
-                           time: Date().timeIntervalSince(start), saturation: saturation)
+                           time: Date().timeIntervalSince(start), saturation: saturation, darkInfo: decoded.darkInfo)
     }
 
     /// 大画面を描き直す。確定済みのビットマップに当てるので速い
@@ -760,6 +764,7 @@ final class AppModel {
         renderTask?.cancel()
         guard let b = hoverDecoderID.flatMap({ decoderBases[$0] }) ?? base else { return }
         sensorSaturation = b.saturation
+        darkInfo = b.darkInfo
         let box = ImageBox(image: b.image)
         let settings = hoverSettings ?? self.settings
         let clipping = showClipping

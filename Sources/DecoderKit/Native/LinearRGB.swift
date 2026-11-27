@@ -22,7 +22,7 @@ struct LinearRGB {
     let exposureGain: Float
     let orientation: CGImagePropertyOrientation?
 
-    func develop(_ options: DecodeOptions) -> (image: CIImage, saturation: SensorSaturation) {
+    func develop(_ options: DecodeOptions) -> (image: CIImage, saturation: SensorSaturation, dark: DarkInfo) {
         // 強さ 0 は切り捨てと同じ処理にする(途中の頭打ちの位置が違うと、縁の補間がわずかに変わるため)
         let reconstruct = options.highlight == .reconstruct && options.highlightStrength > 0
         let wb = options.applyAsShotWB ? asShotMul : daylightMul
@@ -34,6 +34,7 @@ struct LinearRGB {
         let levels = saturationLevels()
         let scale = 1 / max(levels.min() ?? 1, 0.5)
         let limits = levels.map { $0 * SensorSaturationDetect.threshold }
+        let lower: Float = options.keepBelowBlack ? -0.02 : 0
         var bits = [UInt8](repeating: 0, count: w * h)
         raw.withUnsafeBufferPointer { src in
           bits.withUnsafeMutableBufferPointer { sat in
@@ -54,7 +55,7 @@ struct LinearRGB {
                             let range = max(white - black[c], 1)
                             if (peak - black[c]) / range >= limits[c] { b |= 1 << c }
                             let v = (sum / Float(step * step) - black[c]) / range * scale
-                            let clipped = min(max(v, 0), 1)
+                            let clipped = min(max(v, lower), 1)
                             // 復元するときは WB 前に頭打ち(色ごとの飽和の値が wb[c] になる)
                             dst[(y * w + x) * 4 + c] = reconstruct ? clipped * wb[c] : min(clipped * wb[c], 1)
                         }
@@ -68,6 +69,11 @@ struct LinearRGB {
             HighlightReconstruction.reconstruct(&rgba, w, h, clip: wb, strength: Float(options.highlightStrength))
         }
         BayerMosaic.apply(matrix.map { $0 * exposureGain }, to: &rgba)
+        var info = DarkInfo(declaredBlack: Double(black.reduce(0, +) / 3))
+        if options.shadowNoiseReduction > 0 {
+            info.noiseAtBlack = ShadowDenoise.apply(&rgba, w, h, strength: Float(options.shadowNoiseReduction),
+                                                    halfSize: options.halfSize).map(Double.init)
+        }
 
         let data = rgba.withUnsafeBufferPointer { Data(buffer: $0) }
         var image = CIImage(bitmapData: data, bytesPerRow: w * 16,
@@ -76,7 +82,7 @@ struct LinearRGB {
         if let o = orientation { image = image.oriented(o) }
         let saturation = SensorSaturationDetect.makeSaturation(
             bits: bits, width: w, height: h, outputSize: CGSize(width: w, height: h), orientation: orientation)
-        return (image, saturation)
+        return (image, saturation, info)
     }
 
     /// 色ごとのセンサーの飽和の値(白レベル = 1)

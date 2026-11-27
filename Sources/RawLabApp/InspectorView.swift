@@ -92,7 +92,44 @@ struct InspectorView: View {
                 .help("0% = 切り捨てと同じ、100% = 推定した色と明るさをそのまま使う。下の「センサーの飽和」で、補っている範囲を確かめられる")
             }
             sensorSaturationRow
+            darkRows
         }
+    }
+
+    /// 暗部: 黒より暗い値を残す・遮光画素で黒を測る・測ったノイズに合わせたノイズ低減
+    @ViewBuilder
+    private var darkRows: some View {
+        let ours = ["rawlab", "native"].contains(model.decoderID)
+        Toggle("黒より暗い値を残す", isOn: $model.decodeOptions.keepBelowBlack)
+            .disabled(!ours)
+            .help("黒レベルを引いたあとのマイナスの値(暗部のノイズの下半分)を切らずに残す。最暗部の浮きと色かぶりが減り、縮小やノイズ低減で暗部の階調が正しく平均される。夜景や高感度の、黒に近い部分が多い写真で効く(RawLab エンジン・RawLab ネイティブ)")
+        VStack(alignment: .leading, spacing: 2) {
+            let available = model.decoderID == "native" && model.darkInfo?.measuredBlack != nil
+            Toggle("遮光画素で黒を測る", isOn: Binding(
+                get: { available && model.decodeOptions.measuredBlack },
+                set: { model.decodeOptions.measuredBlack = $0 }))
+                .disabled(!available)
+            if let d = model.darkInfo, let m = d.measuredBlack {
+                Text(String(format: "黒: ファイル %.1f / 実測 %.1f  行ごとの縞 %.2f", d.declaredBlack, m, d.rowBanding ?? 0))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("RawLab ネイティブで、遮光画素を残している DNG(リコー・ペンタックスなど)だけ")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .help("センサーの縁にある光の当たらない画素から、この 1 枚の本当の黒と、行ごとの黒の揺れ(横縞)を測って引く")
+        VStack(alignment: .leading, spacing: 2) {
+            ValueSlider("暗部のノイズ低減", value: $model.decodeOptions.shadowNoiseReduction, in: 0...1, format: "%.2f")
+                .disabled(!ours)
+            if let s = model.darkInfo?.noiseAtBlack {
+                Text(String(format: "測ったノイズ(黒のあたり): %.3f%%", s * 100))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .help("写真から、明るさごとのノイズの大きさを測り、まわりのばらつきがノイズ程度の所だけをなめらかにする。境目や模様は残す。暗い所ほど強く効く(RawLab エンジン・RawLab ネイティブ)")
     }
 
     /// センサーの飽和: 大画面に色で重ねるスイッチと、飽和した画素の割合

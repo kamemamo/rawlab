@@ -432,6 +432,7 @@ extension DevelopSettings {
 extension DecodeOptions {
     private enum Keys: String, CodingKey {
         case demosaic, applyAsShotWB, halfSize, noiseReduction, highlight, highlightStrength
+        case keepBelowBlack, measuredBlack, shadowNoiseReduction
     }
 
     /// 後から足した項目は既定値なら書かない(既存バージョンの内容ハッシュを変えない)
@@ -443,6 +444,9 @@ extension DecodeOptions {
         try c.encode(noiseReduction, forKey: .noiseReduction)
         if highlight != .clip { try c.encode(highlight, forKey: .highlight) }
         if highlightStrength != 1 { try c.encode(highlightStrength, forKey: .highlightStrength) }
+        if keepBelowBlack { try c.encode(keepBelowBlack, forKey: .keepBelowBlack) }
+        if measuredBlack { try c.encode(measuredBlack, forKey: .measuredBlack) }
+        if shadowNoiseReduction != 0 { try c.encode(shadowNoiseReduction, forKey: .shadowNoiseReduction) }
     }
 
     public init(from decoder: Decoder) throws {
@@ -454,5 +458,8 @@ extension DecodeOptions {
         noiseReduction = try c.decodeIfPresent(Double.self, forKey: .noiseReduction) ?? 0
         highlight = try c.decodeIfPresent(HighlightMode.self, forKey: .highlight) ?? .clip
         highlightStrength = try c.decodeIfPresent(Double.self, forKey: .highlightStrength) ?? 1
+        keepBelowBlack = try c.decodeIfPresent(Bool.self, forKey: .keepBelowBlack) ?? false
+        measuredBlack = try c.decodeIfPresent(Bool.self, forKey: .measuredBlack) ?? false
+        shadowNoiseReduction = try c.decodeIfPresent(Double.self, forKey: .shadowNoiseReduction) ?? 0
     }
 }

@@ -36,6 +36,13 @@ public struct DecodeOptions: Hashable, Sendable, Codable {
     public var highlight: HighlightMode = .clip
     /// 「色を補って復元」の強さ 0...1(0 = 切り捨てと同じ、1 = 復元しきる)。RawLab エンジン・RawLab ネイティブで有効
     public var highlightStrength: Double = 1
+    /// 黒レベルを引いたあとのマイナスの値(暗部のノイズの下半分)を切らずに残す。RawLab エンジン・RawLab ネイティブで有効
+    public var keepBelowBlack = false
+    /// 光の当たらない画素(遮光画素)から、その 1 枚の黒と行ごとの縞を測って引く。
+    /// RawLab ネイティブで、遮光画素を残している DNG(リコー・ペンタックスなど)だけ有効
+    public var measuredBlack = false
+    /// 写真から測ったノイズの大きさに合わせた、暗部のノイズ低減 0...1。RawLab エンジン・RawLab ネイティブで有効
+    public var shadowNoiseReduction: Double = 0
 
     public init(demosaic: DemosaicMethod = .auto, applyAsShotWB: Bool = true,
                 halfSize: Bool = false, noiseReduction: Double = 0) {
@@ -102,6 +109,20 @@ public struct DecodedImage: @unchecked Sendable {
     public let decodeTime: TimeInterval
     /// センサーの飽和の地図(RawLab エンジン・RawLab ネイティブのみ)
     public var sensorSaturation: SensorSaturation? = nil
+    /// 暗部について測った値(RawLab エンジン・RawLab ネイティブのみ)
+    public var darkInfo: DarkInfo? = nil
+}
+
+/// 暗部について測った値
+public struct DarkInfo: Sendable {
+    /// ファイルに書かれた黒レベル(生の値。色ごとに違うときは平均)
+    public var declaredBlack: Double
+    /// 遮光画素で測った黒レベル(遮光画素がない・使えないときは nil)
+    public var measuredBlack: Double?
+    /// 遮光画素で測った、行ごとの黒の揺れ(標準偏差、生の値)
+    public var rowBanding: Double?
+    /// 写真から測った、黒のあたりのノイズの大きさ(標準偏差。白 = 1 としたときの値)
+    public var noiseAtBlack: Double?
 }
 
 public struct RawMetadata: Sendable, Codable {
