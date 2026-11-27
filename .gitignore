@@ -8,3 +8,7 @@ rawler-ffi/target/
 samples/*
 !samples/.gitkeep
 docs/manual/.print.html
+
+# マニュアルの図と PDF は写真が写るので公開しない(手元にだけ置く)
+docs/manual/img/
+docs/RawLab マニュアル.pdf
