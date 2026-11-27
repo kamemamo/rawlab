@@ -69,16 +69,16 @@ struct InspectorView: View {
             Picker("デモザイク", selection: $model.decodeOptions.demosaic) {
                 ForEach(DemosaicMethod.allCases, id: \.self) { Text($0.rawValue.uppercased()).tag($0) }
             }
-            .help("LibRaw と RawLab エンジンで有効(RawLab エンジンは LINEAR = バイリニア、それ以外 = Malvar-He-Cutler)")
-            .disabled(model.decoderID != "libraw" && model.decoderID != "rawlab")
+            .help("LibRaw・RawLab エンジン・RawLab ネイティブで有効(RawLab の 2 つは LINEAR = バイリニア、それ以外 = Malvar-He-Cutler)")
+            .disabled(!["libraw", "rawlab", "native"].contains(model.decoderID))
             ValueSlider("デコーダー NR", value: $model.decodeOptions.noiseReduction, in: 0...1)
                 .help("Core Image / LibRaw のみ有効")
             Toggle("撮影時の WB を使う", isOn: $model.decodeOptions.applyAsShotWB)
             Picker("白飛び", selection: $model.decodeOptions.highlight) {
                 ForEach(HighlightMode.allCases, id: \.self) { Text($0.title).tag($0) }
             }
-            .help("色を補って復元: 飽和していない色と周りの色合いから飽和した色を推定し、白より明るい階調も残す。下の「ハイライト圧縮」と組み合わせると、露出を下げずに雲などの階調が見える(RawLab エンジン・LibRaw)")
-            .disabled(model.decoderID != "rawlab" && model.decoderID != "libraw")
+            .help("色を補って復元: 飽和していない色と周りの色合いから飽和した色を推定し、白より明るい階調も残す。下の「ハイライト圧縮」と組み合わせると、露出を下げずに雲などの階調が見える(RawLab エンジン・RawLab ネイティブ・LibRaw)")
+            .disabled(!["rawlab", "native", "libraw"].contains(model.decoderID))
         }
     }
 

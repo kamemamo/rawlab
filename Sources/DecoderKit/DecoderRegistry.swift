@@ -8,6 +8,7 @@ public enum DecoderRegistry {
         LibRawDecoder(),
         RawlerDecoder(),
         RawLabEngineDecoder(),
+        NativeDecoder(),
     ]
 
     public static var ids: [String] { all.map(\.id) }

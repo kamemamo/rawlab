@@ -32,7 +32,7 @@ public struct DecodeOptions: Hashable, Sendable, Codable {
     public var halfSize = false
     /// デコーダー内蔵のノイズリダクション 0...1(0 = オフ)。D5 の高感度比較用。
     public var noiseReduction: Double = 0
-    /// 白飛びの扱い(RawLab エンジンと LibRaw で有効)
+    /// 白飛びの扱い(RawLab エンジン・RawLab ネイティブ・LibRaw で有効)
     public var highlight: HighlightMode = .clip
 
     public init(demosaic: DemosaicMethod = .auto, applyAsShotWB: Bool = true,
