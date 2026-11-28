@@ -1,11 +1,11 @@
 import DecoderKit
 import Foundation
 
-/// 下のパネルのタブ。補正項目 + デコーダー
+/// 下のパネルのタブ。デコーダー + 補正項目(この順で左から並ぶ)
 enum AdjustTab: String, CaseIterable, Identifiable, Hashable {
+    case decoder
     case exposure, whiteBalance, channelExposure, hsl, contrast, highlights, rolloff, shadows, tone, vibrance, saturation, look
     case noiseReduction, sharpness
-    case decoder
 
     var id: String { rawValue }
 

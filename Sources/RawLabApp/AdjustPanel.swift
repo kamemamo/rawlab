@@ -141,7 +141,8 @@ struct AdjustPanel: View {
                                         in: RoundedRectangle(cornerRadius: 6))
                     }
                     .buttonStyle(.plain)
-                    if tab == .sharpness { Divider().frame(height: 16).padding(.horizontal, 4) }
+                    // デコーダー(RAW の読み込み方)と補正の項目の間に区切り
+                    if tab == .decoder { Divider().frame(height: 16).padding(.horizontal, 4) }
                 }
             }
             .padding(.horizontal, 8)
