@@ -159,6 +159,8 @@ final class AppModel {
     var gridRows: [Double] = []
     var decoderVariations: [DecoderVariation] = []
     var isLoadingVariations = false
+    /// デコーダーの比較で、すべてのデコーダーの枠が並んでいる(前の設定の絵を含む)
+    var isDecoderStripFull: Bool { decoderVariations.count >= DecoderRegistry.all.count }
     /// 等倍で切り出す場所(画像に対する割合、左上原点)
     var cropCenter = CGPoint(x: 0.5, y: 0.5)
     static let cropSide: CGFloat = 220

@@ -434,7 +434,9 @@ struct AdjustPanel: View {
                 .onTapGesture { if d.image != nil { model.pickDecoder(d.decoderID) } }
                 .onHover { inside in if d.image != nil { model.hoverDecoder(d.decoderID, inside: inside) } }
             }
-            if model.isLoadingVariations {
+            // 並びがそろっている間(設定を変えて読み直し中)は各サムネイルに出すので、ここには出さない。
+            // 出すと幅が取られてサムネイルが縮み、読み終わると戻ってしまう
+            if model.isLoadingVariations, !model.isDecoderStripFull {
                 ProgressView().controlSize(.small).padding(.horizontal, 20)
             }
             Spacer(minLength: 0)
