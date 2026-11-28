@@ -125,29 +125,7 @@ struct AdjustPanel: View {
     // MARK: タブ
 
     private var tabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 2) {
-                ForEach(AdjustTab.allCases) { tab in
-                    Button {
-                        model.selectedTab = tab
-                        focused = true
-                    } label: {
-                        Text(tab.title)
-                            .font(.callout)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .foregroundStyle(model.selectedTab == tab ? .white : .white.opacity(0.6))
-                            .background(model.selectedTab == tab ? Color.white.opacity(0.14) : .clear,
-                                        in: RoundedRectangle(cornerRadius: 6))
-                    }
-                    .buttonStyle(.plain)
-                    // デコーダー(RAW の読み込み方)と補正の項目の間に区切り
-                    if tab == .decoder { Divider().frame(height: 16).padding(.horizontal, 4) }
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.top, 6)
-        }
+        AdjustTabBar(model: model) { focused = true }
     }
 
     // MARK: 段階サムネイル
@@ -956,6 +934,106 @@ struct PreviewArea: View {
                         .allowsHitTesting(false)
                 }
             }
+        }
+    }
+}
+
+/// 下のパネルのタブの並び。入りきらないときは横に動かせる:
+/// トラックパッドの横スワイプ・マウスのホイール(縦に回しても横に動く)・両端の矢印
+struct AdjustTabBar: View {
+    let model: AppModel
+    let onSelect: () -> Void
+    @State private var position = ScrollPosition(edge: .leading)
+    @State private var offset: CGFloat = 0
+    @State private var contentWidth: CGFloat = 0
+    @State private var containerWidth: CGFloat = 0
+    @State private var hovering = false
+    @State private var wheelMonitor: Any?
+
+    private var maxOffset: CGFloat { max(contentWidth - containerWidth, 0) }
+    private var canGoLeft: Bool { offset > 1 }
+    private var canGoRight: Bool { offset < maxOffset - 1 }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                ForEach(AdjustTab.allCases) { tab in
+                    Button {
+                        model.selectedTab = tab
+                        onSelect()
+                    } label: {
+                        Text(tab.title)
+                            .font(.callout)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .foregroundStyle(model.selectedTab == tab ? .white : .white.opacity(0.6))
+                            .background(model.selectedTab == tab ? Color.white.opacity(0.14) : .clear,
+                                        in: RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                    .id(tab)
+                    // デコーダー(RAW の読み込み方)と補正の項目の間に区切り
+                    if tab == .decoder { Divider().frame(height: 16).padding(.horizontal, 4) }
+                }
+            }
+            .padding(.horizontal, 8)
+        }
+        .scrollPosition($position)
+        .onScrollGeometryChange(for: [CGFloat].self) { g in
+            [g.contentOffset.x, g.contentSize.width, g.containerSize.width]
+        } action: { _, v in
+            offset = v[0]
+            contentWidth = v[1]
+            containerWidth = v[2]
+        }
+        // 端で切れているときだけ矢印を出す(押すと 2/3 画面ぶん動く)
+        .overlay(alignment: .leading) { if canGoLeft { arrow("chevron.left", by: -1) } }
+        .overlay(alignment: .trailing) { if canGoRight { arrow("chevron.right", by: 1) } }
+        .padding(.top, 6)
+        .onHover { hovering = $0 }
+        .onAppear(perform: installWheel)
+        .onDisappear {
+            if let m = wheelMonitor { NSEvent.removeMonitor(m) }
+            wheelMonitor = nil
+        }
+        // 選んだタブが隠れていたら見える所まで動かす
+        .onChange(of: model.selectedTab) { _, tab in
+            withAnimation(.easeOut(duration: 0.2)) { position.scrollTo(id: tab) }
+        }
+    }
+
+    private func arrow(_ symbol: String, by direction: CGFloat) -> some View {
+        Button {
+            scroll(to: offset + direction * containerWidth * 0.66, animated: true)
+        } label: {
+            Image(systemName: symbol)
+                .font(.callout.bold())
+                .foregroundStyle(.white.opacity(0.85))
+                .frame(width: 26, height: 28)
+                .background(Color(white: 0.17).opacity(0.95))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(direction < 0 ? "左の項目を表示" : "右の項目を表示")
+    }
+
+    private func scroll(to x: CGFloat, animated: Bool) {
+        let target = min(max(x, 0), maxOffset)
+        if animated {
+            withAnimation(.easeOut(duration: 0.25)) { position.scrollTo(x: target) }
+        } else {
+            position.scrollTo(x: target)
+        }
+    }
+
+    /// マウスのホイール(縦)を横の動きにする。トラックパッドの横スワイプはそのまま
+    private func installWheel() {
+        guard wheelMonitor == nil else { return }
+        wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            guard hovering, maxOffset > 0, abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) else { return event }
+            let step = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * 30
+            scroll(to: offset - step, animated: false)
+            return nil
         }
     }
 }
