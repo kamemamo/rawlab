@@ -644,6 +644,9 @@ struct PreviewArea: View {
                 ProgressView().controlSize(.small).padding(16)
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if let photo = model.selectedPhoto, !photo.isMissing { viewControls.padding(12) }
+        }
         .overlay(alignment: .bottomLeading) {
             if let id = model.previewDecoderID, id != model.decoderID {
                 if let reason = model.decoderUnsupportedReason {
@@ -656,6 +659,33 @@ struct PreviewArea: View {
                 }
             }
         }
+    }
+
+    /// 大画面の右下: 補正前 / 補正後 / 左右で比較、虫眼鏡、等倍表示
+    private var viewControls: some View {
+        @Bindable var model = model
+        return HStack(spacing: 8) {
+            Picker("比較", selection: $model.compareMode) {
+                Text("補正前").tag(CompareMode.before)
+                Text("補正後").tag(CompareMode.off)
+                Text("左右で比較").tag(CompareMode.split)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .help("補正前(同じデコーダーで補正をすべて 0 にしたもの)と見比べる")
+            Toggle(isOn: $model.loupeEnabled) { Label("虫眼鏡", systemImage: "magnifyingglass") }
+                .help("大画面の上でマウスの周りを等倍(100%)で拡大")
+            Toggle(isOn: $model.isZoomed) { Label("等倍表示", systemImage: "1.magnifyingglass") }
+                .help("大画面を等倍(100%)で表示。ドラッグで移動(⌘1。大画面のダブルクリックでも切り替え)")
+        }
+        .toggleStyle(.button)
+        .labelStyle(.iconOnly)
+        .controlSize(.small)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(.regularMaterial, in: Capsule())
+        .environment(\.colorScheme, .dark)
     }
 
     private func pixelSize(_ size: CGSize) -> CGSize {
@@ -731,7 +761,8 @@ struct PreviewArea: View {
                 }
                 .padding(8).allowsHitTesting(false)
             }
-            .overlay(alignment: .bottom) {
+            .overlay(alignment: .bottomLeading) {
+                // 右下は表示切り替えのボタンなので左に寄せる
                 Text("ドラッグで移動・ダブルクリックで全体表示")
                     .font(.caption).foregroundStyle(.white.opacity(0.6))
                     .padding(.horizontal, 8).padding(.vertical, 3)
