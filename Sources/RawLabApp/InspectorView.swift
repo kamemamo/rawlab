@@ -18,7 +18,10 @@ struct InspectorView: View {
                     .labelsHidden()
                     .help("R・G・B を選ぶと、大画面をその色だけの白黒で表示し、ヒストグラムと白飛びの判定もその色だけにする")
                     HistogramView(histogram: model.histogram, showClipping: $model.showClipping,
-                                  channel: model.channelView)
+                                  channel: model.channelView,
+                                  shadowRange: model.selectedTab == .shadows && model.settings.shadowRange > 0
+                                      ? $model.settings.shadowRange : nil)
+                    if model.selectedTab == .shadows { shadowRangeRow }
                 }
                 versionSection
                 decoderSection
@@ -36,6 +39,32 @@ struct InspectorView: View {
         .formStyle(.grouped)
         .onChange(of: model.currentVersionID, initial: true) { versionName = model.currentVersion?.name ?? "" }
         .onChange(of: model.currentVersion?.name) { versionName = model.currentVersion?.name ?? "" }
+    }
+
+    /// シャドウのタブを開いている間だけ: どこまでの暗さを動かすか(ヒストグラムの左から)
+    private var shadowRangeRow: some View {
+        let r = model.settings.shadowRange
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("シャドウの効く範囲")
+                Spacer()
+                Text(r > 0 ? String(format: "左から %.0f%%", r * 100) : "以前の方式")
+                    .monospacedDigit().foregroundStyle(.secondary)
+            }
+            Picker("シャドウの効く範囲", selection: $model.settings.shadowRange) {
+                ForEach(ShadowRangeChoice.all, id: \.value) { Text($0.label).tag($0.value) }
+                // 選択肢にない値(ドラッグで決めた値・以前の方式)も選ばれた状態で表示できるように
+                if !ShadowRangeChoice.all.contains(where: { $0.value == r }) {
+                    Text(r > 0 ? String(format: "%.0f%%", r * 100) : "以前").tag(r)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            Text(r > 0
+                 ? "ヒストグラムの黄色い線より左の暗さだけが動きます。線はドラッグでも動かせます"
+                 : "このバージョンは以前の方式(全体に効く)のままです。範囲を選ぶと新しい方式になります")
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 
     private var versionSection: some View {

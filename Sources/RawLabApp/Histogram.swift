@@ -135,6 +135,8 @@ struct HistogramView: View {
     let histogram: Histogram?
     @Binding var showClipping: Bool
     var channel: ChannelView = .rgb
+    /// シャドウのタブを開いている間、効く範囲(左からの割合)を薄く重ねる。境目の線はドラッグで動かせる
+    var shadowRange: Binding<Double>?
 
     var body: some View {
         VStack(spacing: 4) {
@@ -145,6 +147,12 @@ struct HistogramView: View {
                     let x = size.width * CGFloat(i) / 4
                     ctx.stroke(Path { $0.move(to: CGPoint(x: x, y: 0)); $0.addLine(to: CGPoint(x: x, y: size.height)) },
                                with: .color(.white.opacity(0.08)), lineWidth: 1)
+                }
+                if let r = shadowRange?.wrappedValue, r > 0 {
+                    let w = size.width * CGFloat(r)
+                    ctx.fill(Path(CGRect(x: 0, y: 0, width: w, height: size.height)), with: .color(.yellow.opacity(0.12)))
+                    ctx.stroke(Path { $0.move(to: CGPoint(x: w, y: 0)); $0.addLine(to: CGPoint(x: w, y: size.height)) },
+                               with: .color(.yellow.opacity(0.6)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
                 }
                 guard let h = histogram else { return }
                 ctx.blendMode = .screen
@@ -160,6 +168,7 @@ struct HistogramView: View {
             }
             .frame(height: 90)
             .clipShape(RoundedRectangle(cornerRadius: 4))
+            .overlay { if let range = shadowRange { rangeHandle(range) } }
             .overlay(alignment: .topLeading) { warning(h: histogram?.shadowClipping(channel), color: .blue) }
             .overlay(alignment: .topTrailing) { warning(h: histogram?.highlightClipping(channel), color: .red) }
 
@@ -175,6 +184,26 @@ struct HistogramView: View {
             .font(.caption.monospacedDigit())
             .foregroundStyle(.secondary)
         }
+    }
+
+    /// シャドウの効く範囲: 境目の線の周りをつかんで左右に動かす(1% 刻み、5%〜75%)
+    private func rangeHandle(_ range: Binding<Double>) -> some View {
+        GeometryReader { geo in
+            let x = geo.size.width * CGFloat(range.wrappedValue)
+            Color.clear
+                .frame(width: 14, height: geo.size.height)
+                .contentShape(Rectangle())
+                .position(x: x, y: geo.size.height / 2)
+                .gesture(DragGesture(coordinateSpace: .named("histogram")).onChanged { v in
+                    let r = Double(v.location.x / geo.size.width)
+                    range.wrappedValue = (min(max(r, 0.05), 0.75) * 100).rounded() / 100
+                })
+                .onHover { inside in
+                    if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                }
+                .help("ドラッグでシャドウの効く範囲を変えます")
+        }
+        .coordinateSpace(name: "histogram")
     }
 
     private func area(_ values: [Float], _ size: CGSize) -> Path {

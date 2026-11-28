@@ -542,9 +542,11 @@ struct AdjustPanel: View {
                     .help("→キーでも動かせます")
                 let fine = model.fineTabs.contains(model.selectedTab)
                 Button(fine ? "粗く選び直す" : "細かく") { model.toggleFine() }
+                // 幅が足りないときは、この補足から詰める
                 Text(fine ? "細かい段階(\(p.label(p.fineStep)) 刻み)" : "粗い段階")
                     .font(.caption).foregroundStyle(.white.opacity(0.5))
-                Button("0 に戻す") { model.resetCurrentParam() }
+                    .lineLimit(1).layoutPriority(-1)
+                Button("0 に戻す") { model.resetCurrentParam() }.fixedSize()
                 if p.usesCrop {
                     Text("大きな画面をクリックすると等倍で見る場所を変えられます")
                         .font(.caption).foregroundStyle(.white.opacity(0.5))
@@ -554,7 +556,7 @@ struct AdjustPanel: View {
                     .font(.caption).foregroundStyle(.white.opacity(0.6))
             }
             Spacer()
-            Button("すべての補正をリセット") { model.resetSettings() }
+            Button("すべての補正をリセット") { model.resetSettings() }.fixedSize()
         }
         .buttonStyle(.bordered)
         .controlSize(.small)

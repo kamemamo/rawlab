@@ -146,3 +146,10 @@ struct AdjustParam: @unchecked Sendable {
             : String(format: format, v)
     }
 }
+
+/// シャドウが効く範囲の選択肢(ヒストグラムの左からの割合)
+enum ShadowRangeChoice {
+    static let all: [(label: String, value: Double)] = [
+        ("1/8", 0.125), ("1/4", 0.25), ("1/3", 1.0 / 3), ("1/2", 0.5),
+    ]
+}

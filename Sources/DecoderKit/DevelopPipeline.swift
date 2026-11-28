@@ -11,6 +11,8 @@ public struct DevelopSettings: Hashable, Sendable, Codable {
     public var contrast: Double = 0       // -1...1
     public var highlights: Double = 0     // 0...1 ハイライト復元
     public var shadows: Double = 0        // -1...1
+    /// シャドウが効く範囲(ヒストグラムの左からの割合)。0 は以前の方式(CIHighlightShadowAdjust、0.6.2 までの保存データ)
+    public var shadowRange: Double = 0.25
     public var vibrance: Double = 0       // -1...1
     public var saturation: Double = 0     // -1...1
     public var noiseReduction: Double = 0 // 0...1 パイプライン側 NR
@@ -134,10 +136,11 @@ public enum DevelopPipeline {
         if s.highlightRolloff > 0 {
             img = rolloff(img, amount: s.highlightRolloff)
         }
-        if s.highlights != 0 || s.shadows != 0 {
+        let legacyShadows = s.shadowRange <= 0 ? s.shadows : 0
+        if s.highlights != 0 || legacyShadows != 0 {
             img = img.applyingFilter("CIHighlightShadowAdjust", parameters: [
                 "inputHighlightAmount": 1 - s.highlights,
-                "inputShadowAmount": s.shadows,
+                "inputShadowAmount": legacyShadows,
             ])
         }
         if s.noiseReduction > 0 {
@@ -159,6 +162,11 @@ public enum DevelopPipeline {
                 "inputPoint4": CIVector(x: 1, y: 1),
             ])
             .applyingFilter("CISRGBToneCurveToLinear")
+
+        // シャドウ(ヒストグラムの左の範囲だけ)。表示に近い明るさで範囲を決めるので、ベースのトーンカーブの後
+        if s.shadows != 0, s.shadowRange > 0 {
+            img = ShadowTone.apply(img, amount: s.shadows, range: s.shadowRange)
+        }
 
         // レベル補正 + トーンカーブ(sRGB ガンマ空間で 1 次元の対応表)
         if s.hasToneAdjustments {
@@ -371,6 +379,7 @@ extension DevelopSettings {
         case exposure, temperature, tint, contrast, highlights, shadows, vibrance, saturation, noiseReduction, sharpness
         case levelsBlack, levelsGamma, levelsWhite, curve, highlightRolloff
         case exposureR, exposureG, exposureB, colorAdjustments, lookID, lookStrength
+        case shadowRange
     }
 
     /// 後から足した項目は既定値なら書かない(既存バージョンの内容ハッシュが変わって
@@ -400,6 +409,8 @@ extension DevelopSettings {
             try c.encode(lookID, forKey: .lookID)
             try c.encode(lookStrength, forKey: .lookStrength)
         }
+        // 以前の方式(0)は書かない(古いバージョンの内容ハッシュを変えない)。シャドウが 0 なら範囲は意味がないので書かない
+        if shadows != 0, shadowRange > 0 { try c.encode(shadowRange, forKey: .shadowRange) }
     }
 
     public init(from decoder: Decoder) throws {
@@ -426,6 +437,8 @@ extension DevelopSettings {
         colorAdjustments = try c.decodeIfPresent(ColorAdjustments.self, forKey: .colorAdjustments) ?? ColorAdjustments()
         lookID = try c.decodeIfPresent(String.self, forKey: .lookID)
         lookStrength = try c.decodeIfPresent(Double.self, forKey: .lookStrength) ?? 100
+        // 範囲が書かれていないのにシャドウが動いているのは 0.6.2 までの保存データ。見た目を変えないよう以前の方式のまま
+        shadowRange = try c.decodeIfPresent(Double.self, forKey: .shadowRange) ?? (shadows != 0 ? 0 : 0.25)
     }
 }
 

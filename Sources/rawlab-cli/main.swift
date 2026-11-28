@@ -26,6 +26,7 @@ options:
   --ev <n>              露出補正 (EV)
   --contrast <n>        -1...1
   --shadows <n>         -1...1
+  --shadow-range <n>    シャドウが効く範囲(ヒストグラムの左からの割合、既定 0.25。0 で以前の方式)
   --highlights <n>      0...1
   --sat <n>             彩度 -1...1
   --nr <n>              デコーダー側ノイズリダクション 0...1
@@ -80,6 +81,7 @@ func parse(_ args: ArraySlice<String>) throws -> Options {
         case "--ev": o.develop.exposure = try number(a)
         case "--contrast": o.develop.contrast = try number(a)
         case "--shadows": o.develop.shadows = try number(a)
+        case "--shadow-range": o.develop.shadowRange = try number(a)
         case "--highlights": o.develop.highlights = try number(a)
         case "--sat": o.develop.saturation = try number(a)
         case "--nr": o.decode.noiseReduction = try number(a)
