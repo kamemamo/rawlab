@@ -405,9 +405,14 @@ struct AdjustPanel: View {
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(maxHeight: .infinity)
+                            .opacity(d.isStale ? 0.55 : 1)
                             .overlay {
                                 RoundedRectangle(cornerRadius: 3)
                                     .stroke(d.decoderID == model.decoderID ? accent : .clear, lineWidth: 2)
+                            }
+                            .overlay(alignment: .topTrailing) {
+                                // 新しい設定で読み直し中(終わると差し替わる)
+                                if d.isStale { ProgressView().controlSize(.mini).padding(6) }
                             }
                     } else {
                         RoundedRectangle(cornerRadius: 3)

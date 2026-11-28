@@ -31,6 +31,8 @@ struct DecoderVariation: Identifiable {
     let image: CGImage?
     /// 開けない理由が前もって分かっていればその説明(JPEG XL の DNG など)
     var reason: String? = nil
+    /// デコードの設定を変えて読み直している間、前の設定の絵を仮に出している
+    var isStale = false
 }
 
 /// デコード結果をプレビュー用(長辺 2400)とサムネイル用(長辺 400)のビットマップに確定したもの
@@ -1162,12 +1164,22 @@ final class AppModel {
         let items: [(String, String, DecodedBase?, String?)] = DecoderRegistry.all.compactMap { d in
             if let b = decoderBases[d.id] { return (d.id, d.displayName, b, nil) }
             if decoderFailures.contains(d.id) { return (d.id, d.displayName, nil, url.flatMap { d.unsupportedReason($0) }) }
+            // まだ読み直していないものは、前の絵を残しておく(並びが消えたり詰まったりしないように)
+            if decoderVariations.contains(where: { $0.decoderID == d.id && $0.image != nil }) {
+                return (d.id, d.displayName, nil, nil)
+            }
             return nil
         }
+        let previous = Dictionary(decoderVariations.map { ($0.decoderID, $0) }, uniquingKeysWith: { a, _ in a })
+        let failures = decoderFailures
         let settings = self.settings
         variationTask = Task {
             let result = await Task.detached(priority: .userInitiated) { () -> [DecoderVariation] in
                 items.map { id, name, b, reason in
+                    if b == nil, !failures.contains(id), var old = previous[id] {
+                        old.isStale = true
+                        return old
+                    }
                     let cg = b.flatMap { DevelopPipeline.renderCGImage(DevelopPipeline.apply(settings, to: $0.small)) }
                     return DecoderVariation(decoderID: id, name: name, time: b?.time ?? 0, image: cg, reason: reason)
                 }
