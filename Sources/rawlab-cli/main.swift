@@ -26,6 +26,7 @@ options:
   --ev <n>              露出補正 (EV)
   --contrast <n>        -1...1
   --shadows <n>         -1...1
+  --trim <x,y,w,h>      トリミング(画像に対する割合、左上原点。例: 0.1,0.1,0.5,0.5)
   --shadow-range <n>    シャドウが効く範囲(ヒストグラムの左からの割合、既定 0.25。0 で以前の方式)
   --highlights <n>      0...1
   --sat <n>             彩度 -1...1
@@ -82,6 +83,10 @@ func parse(_ args: ArraySlice<String>) throws -> Options {
         case "--contrast": o.develop.contrast = try number(a)
         case "--shadows": o.develop.shadows = try number(a)
         case "--shadow-range": o.develop.shadowRange = try number(a)
+        case "--trim":
+            let v = try value(a).split(separator: ",").compactMap { Double($0) }
+            guard v.count == 4 else { throw DecoderError.failed("--trim は x,y,w,h の 4 つの数") }
+            o.develop.crop = CropRect(x: v[0], y: v[1], width: v[2], height: v[3])
         case "--highlights": o.develop.highlights = try number(a)
         case "--sat": o.develop.saturation = try number(a)
         case "--nr": o.decode.noiseReduction = try number(a)

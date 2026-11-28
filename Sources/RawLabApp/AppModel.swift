@@ -111,6 +111,7 @@ final class AppModel {
                 rerender()
                 refreshVariations()
                 scheduleSave()
+                if oldValue.crop != settings.crop, compareMode != .off { renderBefore() }
             }
         }
     }
@@ -233,6 +234,7 @@ final class AppModel {
             guard oldValue != isZoomed else { return }
             if isZoomed {
                 if loupeEnabled { loupeEnabled = false }
+                if isCropping { finishCrop() }
                 renderZoom()
             } else {
                 zoomTask?.cancel()
@@ -256,6 +258,20 @@ final class AppModel {
     /// 大画面の大きさ(画素)
     private var zoomViewport = CGSize(width: 1600, height: 1000)
     private var zoomTask: Task<Void, Never>?
+
+    // トリミング
+    /// 大画面で切り抜く範囲を編集中(このあいだ大画面は切り抜く前の全体を表示する)
+    private(set) var isCropping = false
+    /// 編集中の範囲(完了で settings.crop に入る)
+    var cropDraft = CropRect.full
+    /// 比率の固定
+    var cropAspect = CropAspect.free {
+        didSet { if isCropping { fitCropToAspect() } }
+    }
+    /// 比率を縦長で使う
+    var cropPortrait = false {
+        didSet { if isCropping, oldValue != cropPortrait { fitCropToAspect() } }
+    }
 
     // スポイト(ホワイトバランス)
     var isEyedropperActive = false
@@ -396,6 +412,7 @@ final class AppModel {
 
     private func photoSelectionChanged() {
         flushSave()
+        isCropping = false
         preview = nil
         base = nil
         variations = []
@@ -423,6 +440,7 @@ final class AppModel {
 
     private func versionSelectionChanged() {
         flushSave()
+        isCropping = false  // 編集中のトリミングは別のバージョン・写真に持ち越さない
         guard let v = currentVersion else { return }
         loadingVersion = true
         decoderID = v.decoderID
@@ -518,8 +536,11 @@ final class AppModel {
         exportStates = (try? catalog?.exportStates()) ?? [:]
     }
 
+    /// 補正をすべて 0 に戻す。トリミングは補正ではないので残す(やめるときはトリミングの「全体に戻す」)
     func resetSettings() {
-        settings = DevelopSettings()
+        var s = DevelopSettings()
+        s.crop = settings.crop
+        settings = s
     }
 
     // MARK: - 下のパネルの操作
@@ -701,7 +722,8 @@ final class AppModel {
 
     /// 大画面をクリックして等倍で見る場所を決める
     func setCropCenter(_ point: CGPoint) {
-        cropCenter = CGPoint(x: min(max(point.x, 0), 1), y: min(max(point.y, 0), 1))
+        let p = imagePoint(point)
+        cropCenter = CGPoint(x: min(max(p.x, 0), 1), y: min(max(p.y, 0), 1))
         cropBase = nil
         refreshVariations()
     }
@@ -810,7 +832,8 @@ final class AppModel {
         sensorSaturation = b.saturation
         darkInfo = b.darkInfo
         let box = ImageBox(image: b.image)
-        let settings = hoverSettings ?? self.settings
+        var settings = hoverSettings ?? self.settings
+        if isCropping { settings.crop = nil }
         let clipping = showClipping
         let channel = channelView.index
         renderTask = Task {
@@ -847,9 +870,12 @@ final class AppModel {
         guard let b = base else { return }
         let box = ImageBox(image: b.image)
         let channel = channelView.index
+        // 補正前も同じ範囲で切り抜く(左右で比較の絵をそろえる)
+        var plain = DevelopSettings()
+        plain.crop = isCropping ? nil : settings.crop
         Task {
             let cg = await Task.detached(priority: .userInitiated) {
-                DevelopPipeline.renderCGImage(DevelopPipeline.apply(DevelopSettings(), to: box.image))
+                DevelopPipeline.renderCGImage(DevelopPipeline.apply(plain, to: box.image))
                     .map { cg in channel.flatMap { Self.singleChannel(cg, $0) } ?? cg }
             }.value
             guard base?.image === box.image else { return }
@@ -858,8 +884,9 @@ final class AppModel {
     }
 
     /// スポイトで大画面をクリック: その点が無彩色になる色温度・色かぶりにする
-    func applyEyedropper(at point: CGPoint) {
+    func applyEyedropper(at shown: CGPoint) {
         isEyedropperActive = false
+        let point = imagePoint(shown)
         guard let b = base, let g = AdjustTab.whiteBalance.grid else { return }
         let box = ImageBox(image: b.image)
         let tRange = g.x.range, tiRange = g.y.range
@@ -936,7 +963,9 @@ final class AppModel {
         }
 
         variationTask?.cancel()
-        let settings = self.settings
+        var settings = self.settings
+        // 等倍の切り出しはもとの画像の一部なので、トリミングをかけない
+        if p.usesCrop { settings.crop = nil }
         let current = settings[keyPath: p.keyPath]
         let d = effectiveStepDensity
         let values = fineTabs.contains(selectedTab) ? p.fineValues(around: current, density: d) : p.coarseValues(density: d)
@@ -1075,12 +1104,79 @@ final class AppModel {
         }
     }
 
+    // MARK: - トリミング
+
+    /// 大画面に表示している範囲での割合 → 画像全体での割合(トリミング中でなく、切り抜いているとき)
+    func imagePoint(_ p: CGPoint) -> CGPoint {
+        guard !isCropping, let c = settings.crop, !c.isFull else { return p }
+        return c.toImage(p)
+    }
+
+    /// 画像全体での割合 → 大画面に表示している範囲での割合(等倍の切り出し枠の表示用)
+    func shownPoint(_ p: CGPoint) -> CGPoint {
+        guard !isCropping, let c = settings.crop, !c.isFull else { return p }
+        return c.fromImage(p)
+    }
+
+    /// 向きを直した画像の横 ÷ 縦
+    var imageAspect: Double {
+        guard let b = base else { return 1.5 }
+        let e = b.image.extent
+        return e.height > 0 ? Double(e.width / e.height) : 1.5
+    }
+
+    func startCrop() {
+        guard !isCropping, base != nil else { return }
+        if isZoomed { isZoomed = false }
+        if loupeEnabled { loupeEnabled = false }
+        isEyedropperActive = false
+        cropDraft = settings.crop ?? .full
+        cropPortrait = cropDraft.width * imageAspect < cropDraft.height
+        isCropping = true
+        rerender()
+        if compareMode != .off { renderBefore() }
+    }
+
+    /// 完了: 範囲を決めて切り抜く
+    func finishCrop() {
+        guard isCropping else { return }
+        isCropping = false
+        let c = cropDraft
+        if c.isFull ? settings.crop != nil : settings.crop != c {
+            settings.crop = c.isFull ? nil : c
+        } else {
+            rerender()
+        }
+        if compareMode != .off { renderBefore() }
+    }
+
+    /// キャンセル: 編集前の範囲に戻す
+    func cancelCrop() {
+        guard isCropping else { return }
+        isCropping = false
+        rerender()
+        if compareMode != .off { renderBefore() }
+    }
+
+    /// 範囲を全体に戻す(比率の固定があれば、全体に入る最大の大きさ)
+    func resetCropDraft() {
+        cropDraft = .full
+        fitCropToAspect()
+    }
+
+    /// 比率を変えたとき: 今の範囲の中に入る、その比率で最大の範囲にする(中心はそのまま)
+    private func fitCropToAspect() {
+        guard let k = cropAspect.normalizedRatio(imageAspect: imageAspect, portrait: cropPortrait) else { return }
+        cropDraft = CropGeometry.fit(cropDraft, ratio: k)
+    }
+
     // MARK: - 等倍表示
 
     /// 等倍表示を切り替える。point(画像に対する割合)を渡すとそこを中心にする
     func toggleZoom(at point: CGPoint? = nil) {
         if !isZoomed, let point {
-            zoomPoint = CGPoint(x: min(max(point.x, 0), 1), y: min(max(point.y, 0), 1))
+            let p = imagePoint(point)
+            zoomPoint = CGPoint(x: min(max(p.x, 0), 1), y: min(max(p.y, 0), 1))
         }
         isZoomed.toggle()
     }
@@ -1116,7 +1212,8 @@ final class AppModel {
     private func renderZoom() {
         zoomTask?.cancel()
         guard isZoomed else { return }
-        let settings = hoverSettings ?? self.settings
+        var settings = hoverSettings ?? self.settings
+        settings.crop = nil  // フル解像度の一部を切り出して描くので、トリミングはかけない
         let mode = compareMode
         let clipping = showClipping
         let channel = channelView.index
@@ -1163,7 +1260,7 @@ final class AppModel {
     /// 大画面上でマウスが動いたとき。nil で隠す
     func moveLoupe(to point: CGPoint?, pixelSize: Int) {
         guard loupeEnabled else { return }
-        loupePoint = point
+        loupePoint = point.map(imagePoint)
         loupePixelSize = pixelSize
         if point == nil {
             loupeTask?.cancel()
@@ -1176,7 +1273,8 @@ final class AppModel {
     private func renderLoupe() {
         loupeTask?.cancel()
         guard loupeEnabled, let point = loupePoint else { return }
-        let settings = hoverSettings ?? self.settings
+        var settings = hoverSettings ?? self.settings
+        settings.crop = nil  // フル解像度の一部を切り出して描くので、トリミングはかけない
         let size = CGFloat(loupePixelSize)
         loupeTask = Task {
             guard let full = await fullImageBox(), !Task.isCancelled else { return }

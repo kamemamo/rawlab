@@ -36,6 +36,8 @@ public struct DevelopSettings: Hashable, Sendable, Codable {
     public var lookID: String?
     /// 色味の強さ(%、0〜100)
     public var lookStrength: Double = 100
+    /// トリミング(向きを直した画像に対する割合、左上原点)。nil なら切り抜かない
+    public var crop: CropRect?
 
     public init() {}
 
@@ -53,6 +55,36 @@ public struct DevelopSettings: Hashable, Sendable, Codable {
             let leveled = pow(t, 1 / max(levelsGamma, 0.01))
             return Float(min(max(ToneCurve.evaluate(points, at: leveled), 0), 1))
         }
+    }
+}
+
+/// トリミングの範囲(画像に対する割合、左上原点)
+public struct CropRect: Codable, Hashable, Sendable {
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+
+    public static let full = CropRect(x: 0, y: 0, width: 1, height: 1)
+
+    /// ほぼ全体なら切り抜かないのと同じ
+    public var isFull: Bool { x < 0.0005 && y < 0.0005 && width > 0.999 && height > 0.999 }
+
+    /// 割合の点(この範囲の中、左上原点)→ 元の画像全体での割合
+    public func toImage(_ p: CGPoint) -> CGPoint {
+        CGPoint(x: x + p.x * width, y: y + p.y * height)
+    }
+
+    /// 元の画像全体での割合 → この範囲の中での割合
+    public func fromImage(_ p: CGPoint) -> CGPoint {
+        CGPoint(x: (p.x - x) / max(width, 1e-6), y: (p.y - y) / max(height, 1e-6))
     }
 }
 
@@ -200,7 +232,20 @@ public enum DevelopPipeline {
                 "inputRadius": 1.5,
             ])
         }
+        // トリミングは最後(入力の画像全体に対する割合で切り抜き、左下を原点に戻す)
+        if let c = s.crop, !c.isFull {
+            img = crop(img, c, in: input.extent)
+        }
         return img
+    }
+
+    /// 割合の範囲で切り抜く(左上原点の割合 → Core Image の左下原点)
+    public static func crop(_ image: CIImage, _ c: CropRect, in e: CGRect) -> CIImage {
+        let rect = CGRect(x: e.minX + c.x * e.width, y: e.maxY - (c.y + c.height) * e.height,
+                          width: c.width * e.width, height: c.height * e.height).integral.intersection(e)
+        guard rect.width >= 1, rect.height >= 1 else { return image }
+        let cut = image.cropped(to: rect)
+        return cut.transformed(by: .init(translationX: -rect.minX, y: -rect.minY))
     }
 
     /// ハイライト圧縮(リニアのまま)。
@@ -379,7 +424,7 @@ extension DevelopSettings {
         case exposure, temperature, tint, contrast, highlights, shadows, vibrance, saturation, noiseReduction, sharpness
         case levelsBlack, levelsGamma, levelsWhite, curve, highlightRolloff
         case exposureR, exposureG, exposureB, colorAdjustments, lookID, lookStrength
-        case shadowRange
+        case shadowRange, crop
     }
 
     /// 後から足した項目は既定値なら書かない(既存バージョンの内容ハッシュが変わって
@@ -411,6 +456,7 @@ extension DevelopSettings {
         }
         // 以前の方式(0)は書かない(古いバージョンの内容ハッシュを変えない)。シャドウが 0 なら範囲は意味がないので書かない
         if shadows != 0, shadowRange > 0 { try c.encode(shadowRange, forKey: .shadowRange) }
+        if let crop, !crop.isFull { try c.encode(crop, forKey: .crop) }
     }
 
     public init(from decoder: Decoder) throws {
@@ -439,6 +485,7 @@ extension DevelopSettings {
         lookStrength = try c.decodeIfPresent(Double.self, forKey: .lookStrength) ?? 100
         // 範囲が書かれていないのにシャドウが動いているのは 0.6.2 までの保存データ。見た目を変えないよう以前の方式のまま
         shadowRange = try c.decodeIfPresent(Double.self, forKey: .shadowRange) ?? (shadows != 0 ? 0 : 0.25)
+        crop = try c.decodeIfPresent(CropRect.self, forKey: .crop)
     }
 }
 

@@ -559,7 +559,7 @@ struct PreviewArea: View {
             // 画像と下のタブの間の帯: 左にデコーダーのお知らせ、右に表示の切り替え
             if let photo = model.selectedPhoto, !photo.isMissing {
                 HStack(spacing: 12) {
-                    decoderNotice
+                    if model.isCropping { cropControls } else { decoderNotice }
                     Spacer(minLength: 0)
                     viewControls
                 }
@@ -620,6 +620,7 @@ struct PreviewArea: View {
                     .overlay { cropOverlay }
                     .overlay { eyedropperOverlay }
                     .overlay { splitHandle }
+                    .overlay { if model.isCropping { CropEditor(model: model) } }
                     .padding(12)
             } else if model.isDecoding {
                 ProgressView("デコード中…").controlSize(.large).foregroundStyle(.white)
@@ -641,6 +642,38 @@ struct PreviewArea: View {
         }
     }
 
+    /// トリミング中の操作(画像の下の帯の左)
+    private var cropControls: some View {
+        @Bindable var model = model
+        return HStack(spacing: 8) {
+            Text("比率").foregroundStyle(.white.opacity(0.7)).fixedSize()
+            Picker("比率", selection: $model.cropAspect) {
+                ForEach(CropAspect.allCases) { Text($0.title).tag($0) }
+            }
+            .labelsHidden()
+            .fixedSize()
+            .help("比率を固定する")
+            Button { model.cropPortrait.toggle() } label: {
+                Label(model.cropPortrait ? "縦長" : "横長",
+                      systemImage: model.cropPortrait ? "rectangle.portrait" : "rectangle")
+            }
+            .labelStyle(.titleAndIcon)
+            .fixedSize()
+            .disabled(!model.cropAspect.canRotate)
+            .help("縦長と横長を入れ替える")
+            Button("全体に戻す") { model.resetCropDraft() }.fixedSize()
+            Button("キャンセル") { model.cancelCrop() }
+                .keyboardShortcut(.cancelAction)
+                .fixedSize()
+            Button("完了") { model.finishCrop() }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .fixedSize()
+        }
+        .controlSize(.small)
+        .environment(\.colorScheme, .dark)
+    }
+
     /// 選んだデコーダーで開けず、ほかのデコーダーで表示しているときのお知らせ
     @ViewBuilder
     private var decoderNotice: some View {
@@ -660,6 +693,24 @@ struct PreviewArea: View {
     private var viewControls: some View {
         @Bindable var model = model
         return HStack(spacing: 8) {
+            Toggle(isOn: Binding(get: { model.isCropping },
+                                 set: { $0 ? model.startCrop() : model.finishCrop() })) {
+                Label("トリミング", systemImage: "crop")
+            }
+            .help("切り抜く範囲を大画面で決める(もう一度押すか「完了」で決定)")
+            // トリミング中は使わないので隠す(帯をトリミングの操作に空ける)
+            if !model.isCropping { compareAndZoom }
+        }
+        .toggleStyle(.button)
+        .labelStyle(.iconOnly)
+        .controlSize(.small)
+        .environment(\.colorScheme, .dark)
+    }
+
+    /// 補正前 / 補正後 / 左右で比較、虫眼鏡、等倍表示
+    private var compareAndZoom: some View {
+        @Bindable var model = model
+        return Group {
             Picker("比較", selection: $model.compareMode) {
                 Text("補正前").tag(CompareMode.before)
                 Text("補正後").tag(CompareMode.off)
@@ -674,10 +725,6 @@ struct PreviewArea: View {
             Toggle(isOn: $model.isZoomed) { Label("等倍表示", systemImage: "1.magnifyingglass") }
                 .help("大画面を等倍(100%)で表示。ドラッグで移動(⌘1。大画面のダブルクリックでも切り替え)")
         }
-        .toggleStyle(.button)
-        .labelStyle(.iconOnly)
-        .controlSize(.small)
-        .environment(\.colorScheme, .dark)
     }
 
     private func pixelSize(_ size: CGSize) -> CGSize {
@@ -919,7 +966,10 @@ struct PreviewArea: View {
     private var cropOverlay: some View {
         if model.selectedTab.param?.usesCrop == true {
             GeometryReader { geo in
-                let side = geo.size.width * model.cropFraction
+                // 切り抜いているときは、見えている幅に対する大きさと位置に直す
+                let trim = model.settings.crop.flatMap { $0.isFull ? nil : $0 }
+                let side = geo.size.width * model.cropFraction / CGFloat(trim?.width ?? 1)
+                let center = model.shownPoint(model.cropCenter)
                 ZStack {
                     Color.clear
                         .contentShape(Rectangle())
@@ -930,7 +980,7 @@ struct PreviewArea: View {
                     Rectangle()
                         .stroke(Color.yellow, lineWidth: 1.5)
                         .frame(width: max(side, 8), height: max(side, 8))
-                        .position(x: model.cropCenter.x * geo.size.width, y: model.cropCenter.y * geo.size.height)
+                        .position(x: center.x * geo.size.width, y: center.y * geo.size.height)
                         .allowsHitTesting(false)
                 }
             }
