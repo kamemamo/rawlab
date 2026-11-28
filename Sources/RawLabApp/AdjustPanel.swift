@@ -576,6 +576,23 @@ struct PreviewArea: View {
     @State private var zoomDragStart: CGPoint?
 
     var body: some View {
+        VStack(spacing: 0) {
+            previewStack
+            // 画像と下のタブの間の帯: 左にデコーダーのお知らせ、右に表示の切り替え
+            if let photo = model.selectedPhoto, !photo.isMissing {
+                HStack(spacing: 12) {
+                    decoderNotice
+                    Spacer(minLength: 0)
+                    viewControls
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color(white: 0.12))
+            }
+        }
+    }
+
+    private var previewStack: some View {
         ZStack {
             Color(white: 0.12)
             if let photo = model.selectedPhoto, photo.isMissing {
@@ -644,24 +661,24 @@ struct PreviewArea: View {
                 ProgressView().controlSize(.small).padding(16)
             }
         }
-        .overlay(alignment: .bottomTrailing) {
-            if let photo = model.selectedPhoto, !photo.isMissing { viewControls.padding(12) }
-        }
-        .overlay(alignment: .bottomLeading) {
-            if let id = model.previewDecoderID, id != model.decoderID {
-                if let reason = model.decoderUnsupportedReason {
-                    // 壊れているわけではないので、注意の色にしない
-                    Text("\(model.displayName(for: model.decoderID)) は \(reason)のため \(model.displayName(for: id)) で表示中")
-                        .font(.caption).foregroundStyle(.white.opacity(0.6)).padding(16)
-                } else {
-                    Text("\(model.displayName(for: model.decoderID)) で開けなかったため \(model.displayName(for: id)) で表示中")
-                        .font(.caption).foregroundStyle(.orange).padding(16)
-                }
+    }
+
+    /// 選んだデコーダーで開けず、ほかのデコーダーで表示しているときのお知らせ
+    @ViewBuilder
+    private var decoderNotice: some View {
+        if let id = model.previewDecoderID, id != model.decoderID {
+            if let reason = model.decoderUnsupportedReason {
+                // 壊れているわけではないので、注意の色にしない
+                Text("\(model.displayName(for: model.decoderID)) は \(reason)のため \(model.displayName(for: id)) で表示中")
+                    .font(.caption).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+            } else {
+                Text("\(model.displayName(for: model.decoderID)) で開けなかったため \(model.displayName(for: id)) で表示中")
+                    .font(.caption).foregroundStyle(.orange).lineLimit(1)
             }
         }
     }
 
-    /// 大画面の右下: 補正前 / 補正後 / 左右で比較、虫眼鏡、等倍表示
+    /// 画像の下の帯の右: 補正前 / 補正後 / 左右で比較、虫眼鏡、等倍表示
     private var viewControls: some View {
         @Bindable var model = model
         return HStack(spacing: 8) {
@@ -682,9 +699,6 @@ struct PreviewArea: View {
         .toggleStyle(.button)
         .labelStyle(.iconOnly)
         .controlSize(.small)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(.regularMaterial, in: Capsule())
         .environment(\.colorScheme, .dark)
     }
 
@@ -761,8 +775,7 @@ struct PreviewArea: View {
                 }
                 .padding(8).allowsHitTesting(false)
             }
-            .overlay(alignment: .bottomLeading) {
-                // 右下は表示切り替えのボタンなので左に寄せる
+            .overlay(alignment: .bottom) {
                 Text("ドラッグで移動・ダブルクリックで全体表示")
                     .font(.caption).foregroundStyle(.white.opacity(0.6))
                     .padding(.horizontal, 8).padding(.vertical, 3)
