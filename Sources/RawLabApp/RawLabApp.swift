@@ -19,6 +19,12 @@ struct RawLabApp: App {
                 Button("すべてのフォルダを再スキャン") { model.rescanAll() }
                     .keyboardShortcut("r")
             }
+            CommandGroup(before: .toolbar) {
+                Button(model.isZoomed ? "全体を表示" : "等倍で表示") { model.toggleZoom() }
+                    .keyboardShortcut("1")
+                    .disabled(model.selectedPhoto == nil)
+                Divider()
+            }
         }
     }
 }

@@ -37,6 +37,9 @@ struct ContentView: View {
             ToolbarItemGroup {
                 Toggle(isOn: $model.loupeEnabled) { Label("虫眼鏡", systemImage: "magnifyingglass") }
                     .help("大画面の上でマウスの周りを等倍(100%)で拡大")
+                Toggle(isOn: $model.isZoomed) { Label("等倍表示", systemImage: "1.magnifyingglass") }
+                    .help("大画面を等倍(100%)で表示。ドラッグで移動(⌘1。大画面のダブルクリックでも切り替え)")
+                    .disabled(model.selectedPhoto == nil || model.selectedPhoto?.isMissing == true)
                 Button { model.export() } label: { Label("書き出し", systemImage: "square.and.arrow.up") }
                     .disabled(model.selectedPhoto?.isMissing ?? true)
                 Button { showInspector.toggle() } label: { Label("調整", systemImage: "slider.horizontal.3") }

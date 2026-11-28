@@ -570,6 +570,8 @@ struct PreviewArea: View {
     /// 虫眼鏡を描く位置(画像上の座標)
     @State private var loupeLocation: CGPoint?
     private let loupeDiameter: CGFloat = 240
+    /// 等倍表示でドラッグを始めたときの中心
+    @State private var zoomDragStart: CGPoint?
 
     var body: some View {
         ZStack {
@@ -581,10 +583,23 @@ struct PreviewArea: View {
                     Text("元の場所: \(photo.path)\nフォルダを戻すか、移動先のフォルダをライブラリに追加して再スキャンすると、現像データを引き継いでつなぎ直します。")
                 }
                 .foregroundStyle(.white)
+            } else if model.isZoomed, model.zoomImage != nil {
+                zoomView
             } else if let image = model.preview {
                 Image(decorative: model.compareMode == .before ? (model.beforePreview ?? image) : image, scale: 1)
                     .resizable()
                     .scaledToFit()
+                    .overlay {
+                        // ダブルクリックで、その場所を中心に等倍表示(ほかのクリック用の層があればそちらが優先)
+                        GeometryReader { geo in
+                            Color.black.opacity(0.001)
+                                .contentShape(Rectangle())
+                                .onTapGesture(count: 2) { location in
+                                    model.toggleZoom(at: CGPoint(x: location.x / geo.size.width,
+                                                                 y: location.y / geo.size.height))
+                                }
+                        }
+                    }
                     .overlay {
                         // 白飛び(赤)・黒つぶれ(青)。補正後の画像から作るので「補正前」表示のときは出さない
                         if model.showClipping, model.compareMode != .before, let overlay = model.clippingOverlay {
@@ -598,7 +613,8 @@ struct PreviewArea: View {
                                 .opacity(0.85).allowsHitTesting(false)
                         }
                     }
-                    .overlay { if model.compareMode == .split { splitOverlay } }
+                    // 境目をつかむのは splitHandle なので、こちらはクリックを下(ダブルクリックで等倍)に通す
+                    .overlay { if model.compareMode == .split { splitOverlay.allowsHitTesting(false) } }
                     .overlay(alignment: .topLeading) {
                         if model.compareMode == .before { badge("補正前").padding(8) }
                     }
@@ -612,8 +628,17 @@ struct PreviewArea: View {
                 ProgressView("デコード中…").controlSize(.large).foregroundStyle(.white)
             }
         }
+        .background {
+            // 等倍表示で切り出す大きさ(画面の画素)
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { model.setZoomViewport(pixelSize(geo.size)) }
+                    .onChange(of: geo.size) { _, size in model.setZoomViewport(pixelSize(size)) }
+                    .onChange(of: displayScale) { _, _ in model.setZoomViewport(pixelSize(geo.size)) }
+            }
+        }
         .overlay(alignment: .topTrailing) {
-            if model.isDecoding && model.preview != nil {
+            if (model.isDecoding && model.preview != nil) || (model.isZoomed && model.isZoomLoading) {
                 ProgressView().controlSize(.small).padding(16)
             }
         }
@@ -627,6 +652,89 @@ struct PreviewArea: View {
                     Text("\(model.displayName(for: model.decoderID)) で開けなかったため \(model.displayName(for: id)) で表示中")
                         .font(.caption).foregroundStyle(.orange).padding(16)
                 }
+            }
+        }
+    }
+
+    private func pixelSize(_ size: CGSize) -> CGSize {
+        CGSize(width: size.width * displayScale, height: size.height * displayScale)
+    }
+
+    /// 等倍表示: フル解像度の 1 画素 = 画面の 1 画素。ドラッグで動かし、ダブルクリックで全体に戻る
+    private var zoomView: some View {
+        GeometryReader { geo in
+            let s = displayScale
+            let full = model.zoomFullSize
+            let viewport = pixelSize(geo.size)
+            let p = AppModel.clampZoomPoint(model.zoomPoint, full: full, viewport: viewport)
+            // 画面の中心に来る画素(左上原点)
+            let cx = p.x * full.width, cy = p.y * full.height
+            let rect = model.zoomImageRect
+            // 描いた範囲の中心が、画面のどこに来るか(中心が動いた分だけずらす。新しい絵が届くまでのつなぎ)
+            let position = CGPoint(x: geo.size.width / 2 + (rect.midX - cx) / s,
+                                   y: geo.size.height / 2 + (rect.midY - cy) / s)
+            let splitX = geo.size.width * model.splitPosition
+            ZStack {
+                if let image = model.zoomImage {
+                    Image(decorative: image, scale: s).interpolation(.none).position(position)
+                }
+                if model.compareMode == .split, let before = model.zoomBeforeImage {
+                    Image(decorative: before, scale: s).interpolation(.none).position(position)
+                        .mask(alignment: .leading) { Rectangle().frame(width: splitX) }
+                }
+                if model.showClipping, model.compareMode != .before, let clip = model.zoomClipping {
+                    Image(decorative: clip, scale: s).interpolation(.none).position(position)
+                }
+                if model.showSensorSaturation, model.compareMode != .before, let sat = model.sensorSaturation,
+                   full.width > 0 {
+                    // 画像全体に引き伸ばした飽和の地図を、同じ位置にずらして重ねる
+                    Image(decorative: sat.image, scale: 1).resizable().interpolation(.none)
+                        .frame(width: full.width / s, height: full.height / s)
+                        .position(x: geo.size.width / 2 + (full.width / 2 - cx) / s,
+                                  y: geo.size.height / 2 + (full.height / 2 - cy) / s)
+                        .opacity(0.85)
+                }
+                if model.compareMode == .split {
+                    Rectangle().fill(.white).frame(width: 2, height: geo.size.height)
+                        .position(x: splitX, y: geo.size.height / 2)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
+            .allowsHitTesting(false)
+            .overlay {
+                Color.black.opacity(0.001)
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 2).onChanged { v in
+                        let start = zoomDragStart ?? p
+                        if zoomDragStart == nil { zoomDragStart = p }
+                        guard full.width > 0, full.height > 0 else { return }
+                        model.panZoom(to: CGPoint(x: start.x - v.translation.width * s / full.width,
+                                                  y: start.y - v.translation.height * s / full.height))
+                    }.onEnded { _ in zoomDragStart = nil })
+                    .onTapGesture(count: 2) { model.toggleZoom() }
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active: NSCursor.openHand.set()
+                        case .ended: NSCursor.arrow.set()
+                        }
+                    }
+            }
+            .overlay { splitHandle }
+            .overlay(alignment: .topLeading) {
+                HStack(spacing: 6) {
+                    badge("等倍 100%")
+                    if model.compareMode == .before { badge("補正前") }
+                    if model.compareMode == .split { badge("左: 補正前 / 右: 補正後") }
+                }
+                .padding(8).allowsHitTesting(false)
+            }
+            .overlay(alignment: .bottom) {
+                Text("ドラッグで移動・ダブルクリックで全体表示")
+                    .font(.caption).foregroundStyle(.white.opacity(0.6))
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(.black.opacity(0.4), in: Capsule())
+                    .padding(10).allowsHitTesting(false)
             }
         }
     }

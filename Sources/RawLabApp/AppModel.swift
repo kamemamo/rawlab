@@ -176,7 +176,10 @@ final class AppModel {
 
     // 補正前との比較
     var compareMode = CompareMode.off {
-        didSet { if compareMode != .off, beforePreview == nil { renderBefore() } }
+        didSet {
+            if compareMode != .off, beforePreview == nil { renderBefore() }
+            if isZoomed, oldValue != compareMode { renderZoom() }
+        }
     }
     var beforePreview: CGImage?
     /// 左右で比較するときの境目(画像幅に対する割合)
@@ -211,7 +214,10 @@ final class AppModel {
 
     // 虫眼鏡
     var loupeEnabled = false {
-        didSet { if !loupeEnabled { loupePoint = nil; loupeImage = nil; loupeTask?.cancel() } }
+        didSet {
+            if !loupeEnabled { loupePoint = nil; loupeImage = nil; loupeTask?.cancel() }
+            if loupeEnabled, isZoomed { isZoomed = false }
+        }
     }
     /// 虫眼鏡の中心(画像に対する割合、左上原点)
     var loupePoint: CGPoint?
@@ -220,6 +226,36 @@ final class AppModel {
     private var loupeTask: Task<Void, Never>?
     private var fullImageTask: Task<ImageBox?, Never>?
     private var fullImageTaskKey = ""
+
+    // 等倍表示(大画面をフル解像度の 1 画素 = 画面の 1 画素で見る)
+    var isZoomed = false {
+        didSet {
+            guard oldValue != isZoomed else { return }
+            if isZoomed {
+                if loupeEnabled { loupeEnabled = false }
+                renderZoom()
+            } else {
+                zoomTask?.cancel()
+                zoomImage = nil
+                zoomBeforeImage = nil
+                zoomClipping = nil
+                isZoomLoading = false
+            }
+        }
+    }
+    /// 等倍で見ている中心(画像に対する割合、左上原点)
+    var zoomPoint = CGPoint(x: 0.5, y: 0.5)
+    /// 等倍で描いた画像と、それがフル解像度のどこか(画素、左上原点)
+    var zoomImage: CGImage?
+    var zoomBeforeImage: CGImage?
+    var zoomClipping: CGImage?
+    var zoomImageRect = CGRect.zero
+    /// フル解像度の大きさ(画素)
+    var zoomFullSize = CGSize.zero
+    var isZoomLoading = false
+    /// 大画面の大きさ(画素)
+    private var zoomViewport = CGSize(width: 1600, height: 1000)
+    private var zoomTask: Task<Void, Never>?
 
     // スポイト(ホワイトバランス)
     var isEyedropperActive = false
@@ -364,6 +400,10 @@ final class AppModel {
         base = nil
         variations = []
         decoderVariations = []
+        zoomTask?.cancel()
+        zoomImage = nil
+        zoomBeforeImage = nil
+        zoomClipping = nil
         versions = []
         cropCenter = CGPoint(x: 0.5, y: 0.5)
         guard let photo = selectedPhoto else {
@@ -788,6 +828,7 @@ final class AppModel {
             clippingOverlay = result.2
         }
         if loupeEnabled, loupePoint != nil { renderLoupe() }
+        if isZoomed { renderZoom() }
     }
 
     /// 1 色だけを白黒で表示する画像にする(R・G・B すべてをその色の値に)
@@ -1031,6 +1072,89 @@ final class AppModel {
                 cropBase = crop
             }
             refreshVariations()
+        }
+    }
+
+    // MARK: - 等倍表示
+
+    /// 等倍表示を切り替える。point(画像に対する割合)を渡すとそこを中心にする
+    func toggleZoom(at point: CGPoint? = nil) {
+        if !isZoomed, let point {
+            zoomPoint = CGPoint(x: min(max(point.x, 0), 1), y: min(max(point.y, 0), 1))
+        }
+        isZoomed.toggle()
+    }
+
+    /// 大画面の大きさ(画素)が変わったとき
+    func setZoomViewport(_ size: CGSize) {
+        let s = CGSize(width: size.width.rounded(), height: size.height.rounded())
+        guard s.width > 0, s.height > 0, s != zoomViewport else { return }
+        zoomViewport = s
+        if isZoomed { renderZoom() }
+    }
+
+    /// ドラッグで見る場所を動かす(画像の端より外には出さない)
+    func panZoom(to point: CGPoint) {
+        zoomPoint = Self.clampZoomPoint(point, full: zoomFullSize, viewport: zoomViewport)
+        renderZoom()
+    }
+
+    /// 等倍の中心を、表示枠が画像からはみ出さない範囲に収める(割合)
+    nonisolated static func clampZoomPoint(_ p: CGPoint, full: CGSize, viewport: CGSize) -> CGPoint {
+        guard full.width > 0, full.height > 0 else {
+            return CGPoint(x: min(max(p.x, 0), 1), y: min(max(p.y, 0), 1))
+        }
+        func clamp(_ v: CGFloat, _ length: CGFloat, _ view: CGFloat) -> CGFloat {
+            guard view < length else { return 0.5 }
+            let half = view / 2 / length
+            return min(max(v, half), 1 - half)
+        }
+        return CGPoint(x: clamp(p.x, full.width, viewport.width), y: clamp(p.y, full.height, viewport.height))
+    }
+
+    /// フル解像度から、大画面に入る範囲を等倍で現像して切り出す
+    private func renderZoom() {
+        zoomTask?.cancel()
+        guard isZoomed else { return }
+        let settings = hoverSettings ?? self.settings
+        let mode = compareMode
+        let clipping = showClipping
+        let channel = channelView.index
+        let viewport = zoomViewport
+        let point = zoomPoint
+        isZoomLoading = true
+        zoomTask = Task {
+            guard let full = await fullImageBox(), !Task.isCancelled else { return }
+            let result = await Task.detached(priority: .userInitiated) {
+                () -> (after: CGImage, before: CGImage?, clip: CGImage?, rect: CGRect, size: CGSize)? in
+                let e = full.image.extent
+                let p = Self.clampZoomPoint(point, full: e.size, viewport: viewport)
+                let w = min(viewport.width, e.width), h = min(viewport.height, e.height)
+                let rect = CGRect(x: (p.x * e.width - w / 2).rounded(), y: (p.y * e.height - h / 2).rounded(),
+                                  width: w, height: h)
+                // Core Image は左下原点
+                let ci = CGRect(x: e.minX + rect.minX, y: e.maxY - rect.maxY, width: w, height: h)
+                let p3 = CGColorSpace(name: CGColorSpace.displayP3)
+                func render(_ s: DevelopSettings) -> CGImage? {
+                    // ぼかし・シャープなど周りの画素を使う処理のため少し広めに現像してから切る
+                    let out = DevelopPipeline.apply(s, to: full.image.cropped(to: ci.insetBy(dx: -24, dy: -24)))
+                    return DevelopPipeline.context.createCGImage(out, from: ci, format: .RGBA8, colorSpace: p3)
+                }
+                guard let after = render(mode == .before ? DevelopSettings() : settings) else { return nil }
+                let before = mode == .split ? render(DevelopSettings()) : nil
+                let clip = clipping && mode != .before ? Histogram.clippingOverlay(from: after, channel: channel) : nil
+                let shownAfter = channel.flatMap { Self.singleChannel(after, $0) } ?? after
+                let shownBefore = before.map { b in channel.flatMap { Self.singleChannel(b, $0) } ?? b }
+                return (shownAfter, shownBefore, clip, rect, e.size)
+            }.value
+            guard !Task.isCancelled, isZoomed else { return }
+            isZoomLoading = false
+            guard let result else { return }
+            zoomFullSize = result.size
+            zoomImage = result.after
+            zoomBeforeImage = result.before
+            zoomClipping = result.clip
+            zoomImageRect = result.rect
         }
     }
 
